@@ -361,7 +361,7 @@ The linker script `sw/link.ld` places everything in that region (`REGION_ALIAS("
 
 | | `RUN_FROM=LMB` (default) | `RUN_FROM=DDR` |
 |---|---|---|
-| Space | 128 KB for code + data + heap, minus an 8 KB stack | 256 MB |
+| Space | 128 KB for code + data + heap, minus the stack (8 KB, `STACK_SIZE`) | 256 MB |
 | Speed | single-cycle memory, no cache needed | through the 16 KB caches |
 | Build output | `app.elf` + `download.bit` (the program is part of the bitstream) | `app.elf` + `app.img` (flash image) |
 | Try it | `make program APP=<name>` | `make run APP=<name>` (debugger, until RESET) |
@@ -385,6 +385,59 @@ The demo does that for its DDR test. Such buffers are not cleared and not loaded
 **Making a new program run from DDR:** create `sw/apps/<name>/app.mk` with `RUN_FROM := DDR`. From
 then on `make`, `make run` and `make flash` (with bootloader) do the right thing for it, and the VS Code
 tasks and debug configurations follow automatically.
+
+### Memory layout, stack and heap (`sw/link.ld`)
+
+All programs use the same linker script, `sw/link.ld`. It pulls in two small generated files:
+
+| File | Written by | Contains |
+|---|---|---|
+| `build/hw/out/memory.ld` | `hw/gen_memmap.tcl`, from the block design | the regions `LMB` (0x0, 128 KB) and `DDR` (0x80000000, 256 MB) |
+| `build/sw/<APP>/region.ld` | `sw/Makefile`, at every link | `REGION_ALIAS("CODE", LMB or DDR)` from `RUN_FROM`, plus `_STACK_SIZE` / `_MIN_HEAP` if set |
+
+Everything goes into the `CODE` region, in this order:
+```
+ORIGIN(CODE)                                                               ORIGIN+LENGTH
+[_boot][.text][.rodata][.data ...][.bss/.sbss][.noinit][ heap ->     <- stack ][16 B]
+                                                       ^_heap_start  ^_heap_end = _stack_end
+                                                                            __stack = end - 16
+```
+(`.ddr` buffers sit in DDR. For a DDR program, the heap starts after them.)
+
+**Setting the stack and heap sizes:** don't edit `sw/link.ld`, use two make variables (values in bytes,
+decimal or hex):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `STACK_SIZE` | `0x2000` (8 KB) | size of the stack at the top of the region |
+| `HEAP_MIN` | `0x1000` (4 KB) | the link fails unless at least this much is left for the heap |
+
+Like `RUN_FROM`, they can be set for one build or permanently for one program:
+```sh
+make APP=demo STACK_SIZE=0x4000             # one build with a 16 KB stack
+```
+```make
+# sw/apps/<name>/app.mk
+STACK_SIZE := 0x4000
+HEAP_MIN   := 0x10000
+```
+A change relinks the program (no recompile). The map file shows the result: look for `_stack_end`,
+`_heap_start` and `_heap_end` in `build/sw/<APP>/app.map`.
+
+**There is no fixed heap size.** The heap always gets *all* the memory between the end of the program's
+data and the stack, so a bigger stack means a smaller heap and vice versa. `HEAP_MIN` only guards that
+at least that much is left; if not, the link fails with `program does not fit in the CODE region`.
+At run time `malloc` returns `NULL` when the heap is used up (the BSP's `_sbrk` stops at `_heap_end`).
+
+**Nothing checks the stack at run time.** A stack overflow silently overwrites the top of the heap. The
+compiler helps at build time: `-Wstack-usage=2048` warns about any function with a frame over 2 KB, and
+`-Werror` makes that an error. Big arrays belong in `static` storage, the heap or a `.ddr` buffer, not
+on the stack. Interrupt handlers run on the same stack.
+
+**Don't touch** the symbols the runtime needs (`__stack`, `_heap_start/_heap_end`, `__bss_start`, `_end`,
+`__global_pointer$`, `.drvcfg_sec`, `.noinit`); the comments in `sw/link.ld` say why. In particular
+`__stack` must stay 16 bytes below the end of the region: `boot.S` writes to `0(sp)` right away, and at
+the very end of the region that store hangs the CPU before `main()`.
 
 ### lwIP echo server (`APP=echo`)
 
@@ -503,12 +556,21 @@ other zeroed memory are cleared by the program itself. The image format is in
   uses 25 % duty, because full brightness is glaring.
 - **Memory layout:** each program runs entirely from block RAM or entirely from DDR, chosen with
   `RUN_FROM`. See "Where a program runs: block RAM or DDR" under Programs. The stack is 8 KB
-  (`_STACK_SIZE` in `sw/link.ld`), and the heap gets the rest of the chosen memory.
+  by default (`STACK_SIZE`), and the heap gets the rest of the chosen memory. See "Memory layout,
+  stack and heap" under Programs.
 - **Names:** use AMD's names from `xparameters.h`, for example
   `XPAR_XGPIO_0_BASEADDR` and `XPAR_XUARTLITE_0_BASEADDR`. Drivers are initialised by base
   address: `XGpio_Initialize(&gpio, XPAR_XGPIO_0_BASEADDR)`.
 - **printf:** `printf` maps to newlib's integer-only `iprintf`. Use `make PRINTF_FLOAT=1`
   to get floating point, which costs about 45 KB. `xil_printf` is smaller still.
+- **Compiler warnings:** programs compile with `-Wall -Wextra` plus a stricter set (`-Wshadow`,
+  `-Wundef`, `-Wstrict-prototypes`, `-Wmissing-prototypes`, `-Wcast-qual`, `-Wwrite-strings`,
+  `-Wstack-usage=2048` and others, see `WARN` in `sw/Makefile`), and **`-Werror`**, so any warning
+  stops the build. `make WERROR=0` keeps them as warnings while you experiment.
+  `make EXTRA_WARN=-Wswitch-enum` adds more. Changing any of these recompiles the program;
+  when nothing changed, `make` compiles nothing and shows no compiler lines. A program's
+  `app.mk` can relax warnings for copied AMD template files only
+  (`TEMPLATE_SRCS`/`TEMPLATE_CFLAGS`, as in `sw/apps/echo/app.mk`).
 - **Interrupts and exceptions:** these use AMD's API (`Xil_ExceptionRegisterHandler`,
   `XIntc_*`, or the `XSetupInterruptSystem` helper in `xinterrupt_wrap.h`). The AXI INTC
   is set to fast-interrupt mode (`C_HAS_FAST=1`).

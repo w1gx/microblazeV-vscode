@@ -16,10 +16,12 @@ make program     # JTAG (LMB apps)   make flash    # SPI flash, boots at power-u
 make console     # UART 115200       make run      # system.bit via JTAG + ELF via xsdb (DDR apps, volatile)
 make debug-load  # like make run but CPU stays halted at the entry, for GDB on port 3004 (VS Code F5)
 make APP=echo    # programs = sw/apps/<APP>/ (default demo); APP works for make/program/flash/run
+make WERROR=0    # warnings don't stop the build (default -Werror); EXTRA_WARN=-W... adds more
 make bsp         # regenerate BSP only (after editing sw/bsp.conf)
 make gui         # Vivado GUI on build/hw/proj with "MBV:" toolbar buttons
 FORCE=1 make hw  # discard unexported GUI edits     make gui FRESH=1  # recreate project
 make RUN_FROM=DDR -C sw   # link into DDR (big programs/lwIP), load with make run; apps/<APP>/app.mk can set it
+make STACK_SIZE=0x4000 HEAP_MIN=0x10000   # stack size / minimum heap (default 0x2000 / 0x1000); app.mk can set them
 ```
 
 ## Pipeline
@@ -181,11 +183,29 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   README "Where a program runs: block RAM or DDR" explains it for users: table, the fit check
   ("program does not fit in the CODE region"), and `.ddr` buffers as a middle way. Keep it in sync with
   `sw/Makefile` and `link.ld`.
+- **Stack and heap (`link.ld` + `region.ld`):** `sw/Makefile` writes `build/sw/<APP>/region.ld` (cmp-rewritten, so a
+  change relinks): `REGION_ALIAS("CODE", $(RUN_FROM))`, plus `_STACK_SIZE = …;` / `_MIN_HEAP = …;` only when
+  `STACK_SIZE` / `HEAP_MIN` are set (command line or `app.mk`). `link.ld` INCLUDEs it before its
+  `DEFINED(_STACK_SIZE) ? … : 0x2000` / `0x1000` defaults, so the defaults live only in `link.ld`. Stack = top
+  `_STACK_SIZE` bytes below `__stack`; heap = `_heap_start` (after `.noinit`, or after `.ddr` for DDR apps) up to
+  `_heap_end = _stack_end`, so there is no fixed heap size. `_MIN_HEAP` is just the link-time
+  `ASSERT` ("program does not fit in the CODE region"). The BSP's `_sbrk` (libxilstandalone) returns ENOMEM past
+  `_heap_end`; there is no run-time stack-overflow check. Verified: `STACK_SIZE=0x4000` moves `_stack_end` to
+  0x1bff0, `0x14000` trips the ASSERT for demo. README "Memory layout, stack and heap" documents it for users.
 - **`.ddr` section:** a NOLOAD section in DDR for big buffers
   (`__attribute__((section(".ddr")))`), not zeroed. With `RUN_FROM=DDR`, `region.ld` aliases
   CODE to DDR and the heap starts after `.ddr`.
 - **printf:** `-Dprintf=iprintf` and friends by default, because floating-point printf costs about 45 KB.
   `PRINTF_FLOAT=1` turns it back on. This toolchain has **no newlib-nano**.
+- **Warnings:** `WARN` in `sw/Makefile` = `-Wall -Wextra` + shadow/undef/format=2/strict- and missing-prototypes/
+  redundant-decls/cast-qual/write-strings/null-dereference/logical-op/duplicated-*/vla/`-Wstack-usage=2048`,
+  plus `-Werror` unless `WERROR=0`. `EXTRA_WARN` adds flags. demo, boot, `common/` and echo's own files are clean.
+  AMD's echo template files (`main.c`, `echo.c`, `platform.c`) are not: `app.mk` lists them in `TEMPLATE_SRCS` and
+  `TEMPLATE_CFLAGS` adds `-Wno-*` for them only (K&R `()` prototypes, `#if __MICROBLAZE__`, string literals as
+  `char *`, a second `dhcp_start` declaration). `print-app-cflags SRC=<file>` gives compdb the same per-file flags.
+  Objects depend on `build/sw/<APP>/cflags.txt` (compiler + all flags, rewritten only on change), so changing
+  `WERROR`, `EXTRA_WARN`, `OPT`, `PRINTF_FLOAT` or `app.mk` recompiles everything. A plain `make` with nothing
+  changed shows no gcc lines, so no `-Wall` in the output either.
 - **Names:** use AMD's `xparameters.h` names: `XPAR_XGPIO_0_BASEADDR`, `XPAR_XUARTLITE_0_BASEADDR`,
   `XPAR_CPU_CORE_CLOCK_FREQ_HZ`, `XPAR_LMB_BRAM_0_BASEADDRESS/HIGHADDRESS`,
   `XPAR_MIG_0_BASEADDRESS/HIGHADDRESS`.
