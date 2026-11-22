@@ -1,0 +1,102 @@
+{
+    // Ctrl+Shift+B builds the software (asks which program in sw/apps/); the rest are in "Run Task".
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "make APP=${input:app}",
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": { "base": "$gcc", "fileLocation": ["relative", "${workspaceFolder}/sw"] }
+        },
+        {
+            "label": "program (JTAG)",
+            "type": "shell",
+            "command": "make program APP=${input:app}",
+            "problemMatcher": { "base": "$gcc", "fileLocation": ["relative", "${workspaceFolder}/sw"] }
+        },
+        {
+            "label": "console",
+            "type": "shell",
+            "command": "./scripts/console.py",
+            "isBackground": true,
+            "presentation": { "panel": "dedicated", "focus": true, "reveal": "always" },
+            "problemMatcher": []
+        },
+        {
+            "label": "program + console",
+            "dependsOrder": "sequence",
+            "dependsOn": ["program (JTAG)", "console"],
+            "problemMatcher": []
+        },
+        {
+            "label": "flash (SPI)",
+            "type": "shell",
+            "command": "make flash APP=${input:app}",
+            "problemMatcher": []
+        },
+        {
+            "label": "run (xsdb, e.g. echo)",
+            "type": "shell",
+            "command": "make run APP=${input:app}",
+            "problemMatcher": { "base": "$gcc", "fileLocation": ["relative", "${workspaceFolder}/sw"] }
+        },
+        {
+            "label": "debug: load program of open file",
+            "type": "shell",
+            "command": "make debug-load APP=${fileDirnameBasename}",
+            "problemMatcher": { "base": "$gcc", "fileLocation": ["relative", "${workspaceFolder}/sw"] }
+        },
+        {
+            "label": "debug: load demo",
+            "type": "shell",
+            "command": "make debug-load APP=demo",
+            "problemMatcher": { "base": "$gcc", "fileLocation": ["relative", "${workspaceFolder}/sw"] }
+        },
+        {
+            "label": "debug: load echo",
+            "type": "shell",
+            "command": "make debug-load APP=echo",
+            "problemMatcher": { "base": "$gcc", "fileLocation": ["relative", "${workspaceFolder}/sw"] }
+        },
+        {
+            "label": "debug: hw_server",
+            "type": "shell",
+            "command": "./scripts/hw_server.sh",
+            "problemMatcher": []
+        },
+        {
+            "label": "open block design in Vivado",
+            "type": "shell",
+            "command": "make gui",
+            "problemMatcher": []
+        },
+        {
+            "label": "build hardware + BSP (~15 min)",
+            "type": "shell",
+            "command": "make hw",
+            "problemMatcher": []
+        },
+        {
+            "label": "regenerate BSP",
+            "type": "shell",
+            "command": "make bsp",
+            "problemMatcher": []
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "command": "make clean",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "app",
+            "type": "pickString",
+            "description": "Program in sw/apps/ (echo runs from DDR: use the run task)",
+            "options": ["demo", "echo"],
+            "default": "demo"
+        }
+    ]
+}

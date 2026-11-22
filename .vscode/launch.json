@@ -1,0 +1,91 @@
+{
+    // Debugging the MicroBlaze V with GDB (riscv32-xilinx-elf-gdb) through AMD's
+    // hw_server, which offers a GDB server for RISC-V on port 3004.
+    //
+    //  Debug program of open file : like Debug <app>, for the program whose file is open.
+    //  Debug <app>  : builds the program, configures the FPGA with the plain hardware,
+    //                 loads the program (CPU halted at its entry point) and runs to main().
+    //  Attach <app> : connects to whatever runs now (e.g. booted from flash) and stops
+    //                 where it is, without reloading anything. Use the matching program.
+    //
+    // Stopping a session and starting a new one works. To let the board run on its own
+    // again, use `make run`, `make program` or PROG. The UART console keeps working.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Debugs the program whose source is open in the active editor
+            // (sw/apps/<name>/...): echo.c -> echo, demo's main.c -> demo.
+            "name": "Debug program of open file",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/sw/${fileDirnameBasename}/app.elf",
+            "cwd": "${workspaceFolder}/sw",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/Xilinx/2026.1/gnu/riscv/lin/x86_64-oesdk-linux/usr/bin/riscv32-xilinx-elf/riscv32-xilinx-elf-gdb",
+            "miDebuggerServerAddress": "localhost:3004",
+            "useExtendedRemote": true,
+            "preLaunchTask": "debug: load program of open file",
+            "postRemoteConnectCommands": [ { "text": "tbreak main" } ],
+            "launchCompleteCommand": "exec-continue",
+            "setupCommands": [ { "text": "set confirm off" } ]
+        },
+        {
+            "name": "Debug demo",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/sw/demo/app.elf",
+            "cwd": "${workspaceFolder}/sw",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/Xilinx/2026.1/gnu/riscv/lin/x86_64-oesdk-linux/usr/bin/riscv32-xilinx-elf/riscv32-xilinx-elf-gdb",
+            "miDebuggerServerAddress": "localhost:3004",
+            "useExtendedRemote": true,
+            "preLaunchTask": "debug: load demo",
+            "postRemoteConnectCommands": [ { "text": "tbreak main" } ],
+            "launchCompleteCommand": "exec-continue",
+            "setupCommands": [ { "text": "set confirm off" } ]
+        },
+        {
+            "name": "Debug echo",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/sw/echo/app.elf",
+            "cwd": "${workspaceFolder}/sw",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/Xilinx/2026.1/gnu/riscv/lin/x86_64-oesdk-linux/usr/bin/riscv32-xilinx-elf/riscv32-xilinx-elf-gdb",
+            "miDebuggerServerAddress": "localhost:3004",
+            "useExtendedRemote": true,
+            "preLaunchTask": "debug: load echo",
+            "postRemoteConnectCommands": [ { "text": "tbreak main" } ],
+            "launchCompleteCommand": "exec-continue",
+            "setupCommands": [ { "text": "set confirm off" } ]
+        },
+        {
+            "name": "Attach demo",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/sw/demo/app.elf",
+            "cwd": "${workspaceFolder}/sw",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/Xilinx/2026.1/gnu/riscv/lin/x86_64-oesdk-linux/usr/bin/riscv32-xilinx-elf/riscv32-xilinx-elf-gdb",
+            "miDebuggerServerAddress": "localhost:3004",
+            "useExtendedRemote": true,
+            "preLaunchTask": "debug: hw_server",
+            "launchCompleteCommand": "None",
+            "setupCommands": [ { "text": "set confirm off" } ]
+        },
+        {
+            "name": "Attach echo",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/sw/echo/app.elf",
+            "cwd": "${workspaceFolder}/sw",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/Xilinx/2026.1/gnu/riscv/lin/x86_64-oesdk-linux/usr/bin/riscv32-xilinx-elf/riscv32-xilinx-elf-gdb",
+            "miDebuggerServerAddress": "localhost:3004",
+            "useExtendedRemote": true,
+            "preLaunchTask": "debug: hw_server",
+            "launchCompleteCommand": "None",
+            "setupCommands": [ { "text": "set confirm off" } ]
+        }
+    ]
+}

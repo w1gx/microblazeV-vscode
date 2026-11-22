@@ -1,0 +1,24 @@
+{
+    // The C/C++ extension takes its configuration from c_cpp_properties.json
+    // (compile_commands.json); keep Makefile Tools from taking over.
+    "makefile.configureOnOpen": false,
+    "makefile.makefilePath": "${workspaceFolder}/Makefile",
+
+    // build/hw/proj is the throw-away Vivado project: thousands of files that
+    // only slow down search and the file watcher. build/bsp stays searchable
+    // so the driver sources and headers can be browsed.
+    "search.exclude": {
+        "build/hw/proj/**": true,
+        "build/bsp/sdt/**": true,
+        "build/bsp/domain/libsrc/build_configs/**": true
+    },
+    "files.watcherExclude": {
+        "**/build/hw/proj/**": true,
+        "**/build/bsp/domain/libsrc/build_configs/**": true
+    },
+    "files.associations": {
+        "*.xdc": "tcl",
+        "*.ld": "linkerscript",
+        "bsp.conf": "shellscript"
+    }
+}

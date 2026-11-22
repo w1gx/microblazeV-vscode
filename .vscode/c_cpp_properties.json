@@ -1,0 +1,30 @@
+{
+    // IntelliSense for the MicroBlaze V application.
+    //
+    // compileCommands is written by `make` (sw/Makefile) and has the exact
+    // flags of the real build: BSP headers (xparameters.h, xgpio.h, ...),
+    // -march/-mabi, defines. The settings below it are only the fallback
+    // until the first build.
+    "configurations": [
+        {
+            "name": "MicroBlaze V",
+            "compileCommands": "${workspaceFolder}/build/sw/compile_commands.json",
+            "compilerPath": "/opt/Xilinx/2026.1/gnu/riscv/lin/x86_64-oesdk-linux/usr/bin/riscv32-xilinx-elf/riscv32-xilinx-elf-gcc",
+            "compilerArgs": [
+                "-march=rv32i_zicsr_zifencei_zicbom",
+                "-mabi=ilp32",
+                "--sysroot=/opt/Xilinx/2026.1/gnu/riscv/lin/riscv32-xilinx-elf"
+            ],
+            "includePath": [
+                "${workspaceFolder}/sw/apps/**",
+                "${workspaceFolder}/build/bsp/domain/include"
+            ],
+            "defines": [
+                "SDT"
+            ],
+            "cStandard": "gnu11",
+            "intelliSenseMode": "linux-gcc-x86"
+        }
+    ],
+    "version": 4
+}
