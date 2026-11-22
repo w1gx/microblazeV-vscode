@@ -7,7 +7,8 @@
  * the four LEDs (axi_gpio_0) whose speed is set by the DIP switches, shows
  * the push buttons on the LEDs while pressed (axi_gpio_1, polled) and echoes
  * whatever is typed on the console (115200 8N1 on the Arty's USB-UART).
- * At startup it also checks the Ethernet PHY (MDIO) and the QSPI flash (JEDEC ID).
+ * At startup it also checks the Ethernet PHY (MDIO) and the QSPI flash (JEDEC ID)
+ * and tests the RGB LEDs (axi_gpio_2, rgb.c), which then show a slow rainbow.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -17,7 +18,7 @@
 #include "xspi.h"
 #include "xuartlite_l.h"
 #include "xstatus.h"
-#include "sleep.h"
+#include "rgb.h"
 
 #define LED_CHANNEL     1               /* axi_gpio_0: 4 LEDs */
 #define BTN_CHANNEL     1               /* axi_gpio_1 channel 1: BTN0..3 */
@@ -142,6 +143,10 @@ int main(void)
            (unsigned long)((t1 - t0) / (XPAR_CPU_CORE_CLOCK_FREQ_HZ / 1000000)));
     eth_check();
     flash_check();
+    if (rgb_init() != XST_SUCCESS)
+        printf("  RGB LEDs      : GPIO init failed\n");
+    else
+        rgb_selftest();
 
     if (XGpio_Initialize(&leds, XPAR_XGPIO_0_BASEADDR) != XST_SUCCESS ||
         XGpio_Initialize(&inputs, XPAR_XGPIO_1_BASEADDR) != XST_SUCCESS) {
@@ -152,9 +157,9 @@ int main(void)
     XGpio_SetDataDirection(&inputs, BTN_CHANNEL, 0xF);     /* all inputs */
     XGpio_SetDataDirection(&inputs, SW_CHANNEL, 0xF);
 
-    printf("\nLEDs running: switches set the speed, buttons light their LED.\n"
+    printf("\nLEDs running: switches set the speed, buttons light their LED, RGB LEDs cycle colours.\n"
            "Type something, it will be echoed back.\n");
-    unsigned pos = 0, dir = 1;
+    unsigned pos = 0, dir = 1, hue = 0;
     uint32_t last_btn = ~0u, last_sw = ~0u;
     for (;;) {
         uint32_t btn = XGpio_DiscreteRead(&inputs, BTN_CHANNEL) & 0xF;
@@ -176,7 +181,8 @@ int main(void)
             pos = dir ? pos + 1 : pos - 1;
         }
 
-        /* step time: 25 ms (all switches on) .. 400 ms (all off), polling the UART */
+        /* step time: 25 ms (all switches on) .. 400 ms (all off), polling the UART;
+         * the waiting is done by the RGB PWM, the rainbow turns 1 degree per 5 ms */
         int steps = 25 * (16 - (int)sw);
         for (int t = 0; t < steps / 5; t++) {
             while (!XUartLite_IsReceiveEmpty(XPAR_XUARTLITE_0_BASEADDR)) {
@@ -185,7 +191,9 @@ int main(void)
                     XUartLite_SendByte(XPAR_XUARTLITE_0_BASEADDR, '\n');
                 XUartLite_SendByte(XPAR_XUARTLITE_0_BASEADDR, c);
             }
-            usleep(5000);
+            rgb_rainbow(hue);
+            hue = (hue + 1) % 360;
+            rgb_pwm_run(5000);
         }
     }
 }

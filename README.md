@@ -180,7 +180,7 @@ peripheral or library needs no Makefile change. Add the IP, `make hw`, and
 
 | Path | What |
 |---|---|
-| `hw/system_bd.tcl` | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer (`0x41C00000`), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer), MDM. Exported with `write_bd_tcl`. |
+| `hw/system_bd.tcl` | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI GPIO 2 (12 outputs for the four RGB LEDs, `0x40020000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer (`0x41C00000`), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer), MDM. Exported with `write_bd_tcl`. |
 | `hw/arty_a7_100.xdc` | The two clock pins (`sys_clk_i` in, `eth_ref_clk` out), configuration settings (quad-SPI boot) |
 | `hw/project.tcl` | Shared Vivado procedures: create the project, export the block design, build, BSP |
 | `hw/build_hw.tcl`, `hw/build_hw.sh` | `make hw`: recreate the project in `build/hw/proj`, synthesis, implementation, outputs to `build/hw/out`, then the BSP |
@@ -287,7 +287,7 @@ discards them. If `hw/system_bd.tcl` changed underneath the project (for example
 a `git pull`), `make gui FRESH=1` recreates the project from it.
 
 The board files come from the Vivado board store (`BOARD_REPO` in `scripts/env.sh`),
-so board interfaces such as `led_4bits`, `push_buttons_4bits`, `eth_mii` and `qspi_flash`
+so board interfaces such as `led_4bits`, `rgb_led`, `push_buttons_4bits`, `eth_mii` and `qspi_flash`
 are available. New peripherals get their drivers in the BSP automatically.
 
 ## Clocking and porting to another board
@@ -323,7 +323,7 @@ updated whenever the system clock changes.
 2. **Clock pin:** the `sys_clk_i` pin and I/O standard in the xdc.
 3. **DDR controller:** the MIG's DDR preset, and that its input clock matches the board's oscillator.
 4. **UART:** its clock setting.
-5. **Board-interface names:** UART, LEDs, buttons, switches, Ethernet (`eth_mii`, `eth_mdio_mdc`),
+5. **Board-interface names:** UART, LEDs, RGB LEDs (`rgb_led`), buttons, switches, Ethernet (`eth_mii`, `eth_mdio_mdc`),
    QSPI (`qspi_flash`), plus the Ethernet PHY clock pin, if the new PHY needs one.
 6. **Flash:** `FLASH_PART` for flashing.
 
@@ -338,7 +338,7 @@ build it with `make APP=<name>`.
 
 | Program | Runs from | Load with | What it does |
 |---|---|---|---|
-| `demo` | local memory | `make program` (or `make flash`) | Hardware summary, DDR test, Ethernet PHY and flash checks, LEDs/buttons/switches, UART echo |
+| `demo` | local memory | `make program` (or `make flash`) | Hardware summary, DDR test, Ethernet PHY and flash checks, RGB LED test, LEDs/buttons/switches, RGB rainbow, UART echo |
 | `echo` | DDR | `make run APP=echo` (debugger) or `make flash APP=echo` (bootloader) | lwIP TCP echo server on port 7 |
 | `boot` | local memory | used by `make flash` for DDR programs; `make program APP=boot` tests it without reflashing | Bootloader: copies a DDR program from flash to DDR at every start |
 
@@ -494,6 +494,13 @@ other zeroed memory are cleared by the program itself. The image format is in
   8 MB) so neither of them gets overwritten.
 - **Startup checks:** the demo prints the Ethernet PHY's ID and link state (read over MDIO) and the
   flash's JEDEC ID. The ID line also names the `FLASH_PART` value `make flash` needs for this board.
+- **RGB LEDs:** the demo checks the GPIO register (write, read back) and then lights LD0..LD3 red,
+  green and blue in turn, all white, and a short brightness ramp. Watch the LEDs: the console only
+  shows the readback result. Afterwards they show a slow rainbow. The code is in `sw/apps/demo/rgb.c`.
+  Each LED has three bits in `axi_gpio_2` (bit 3n blue, 3n+1 green, 3n+2 red for LD*n*). The
+  brightness comes from software PWM (64 levels, about 1 kHz), which runs only while
+  `rgb_pwm_run()` is called. The demo uses it instead of `usleep()` in its main loop. The demo
+  uses 25 % duty, because full brightness is glaring.
 - **Memory layout:** each program runs entirely from block RAM or entirely from DDR, chosen with
   `RUN_FROM`. See "Where a program runs: block RAM or DDR" under Programs. The stack is 8 KB
   (`_STACK_SIZE` in `sw/link.ld`), and the heap gets the rest of the chosen memory.
