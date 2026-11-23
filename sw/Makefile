@@ -13,7 +13,11 @@
 #   make RUN_FROM=DDR    link any app into DDR instead (big programs, lwIP)
 #   make elf | size | dis | clean    (clean: this APP's build/sw/<APP>)
 #
-# apps/<APP>/app.mk (optional) holds per-app defaults: RUN_FROM, APP_CFLAGS.
+#   make STACK_SIZE=0x4000 [HEAP_MIN=0x10000]   stack size / minimum heap (see link.ld)
+# apps/<APP>/app.mk (optional) holds per-app defaults: RUN_FROM, STACK_SIZE, HEAP_MIN, APP_CFLAGS, and
+# TEMPLATE_SRCS/TEMPLATE_CFLAGS (extra flags only for copied AMD template files,
+# e.g. -Wno-... so they stay unmodified).
+#   make WERROR=0        warnings stay warnings (default: -Werror); EXTRA_WARN=... adds more
 #   make compdb          only write compile_commands.json (VS Code / clangd); also done by all/elf
 #
 # printf is mapped to newlib's integer-only iprintf (saves ~45 KB of local
@@ -37,6 +41,8 @@ $(error no sources in $(APPDIR) - available apps: $(notdir $(wildcard apps/*)))
 endif
 -include $(APPDIR)/app.mk
 RUN_FROM    ?= LMB
+STACK_SIZE  ?=          # bytes, e.g. 0x4000; empty = link.ld default (0x2000 = 8 KB)
+HEAP_MIN    ?=          # bytes the heap must at least get; empty = link.ld default (0x1000)
 OUT         := $(OUT_ROOT)/$(APP)
 
 ifeq ($(wildcard $(HW_OUT)/cpu.mk),)
@@ -66,10 +72,24 @@ CFLAGS  += -Dprintf=iprintf -Dfprintf=fiprintf -Dsprintf=siprintf -Dsnprintf=sni
            -Dvprintf=viprintf -Dvfprintf=vfiprintf -Dvsprintf=vsiprintf -Dvsnprintf=vsniprintf
 endif
 ARCH    := -march=$(MARCH) -mabi=$(MABI) -mcmodel=medany --sysroot=$(SYSROOT)
-CFLAGS  += $(ARCH) $(OPT) -g3 -std=gnu11 -Wall -Wextra -DSDT \
+# Warnings. WERROR=1 (default) turns them into errors; WERROR=0 for quick experiments.
+# EXTRA_WARN adds more (e.g. EXTRA_WARN=-Wswitch-enum), WARN=... replaces the whole set.
+WARN    ?= -Wall -Wextra -Wshadow -Wundef -Wdouble-promotion -Wformat=2 -Wformat-truncation=2 \
+           -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls \
+           -Wpointer-arith -Wcast-align -Wcast-qual -Wwrite-strings -Wnull-dereference \
+           -Wlogical-op -Wduplicated-cond -Wduplicated-branches -Wvla -Wstack-usage=2048
+EXTRA_WARN ?=
+WERROR  ?= 1
+ifneq ($(WERROR),0)
+WARN    += -Werror
+endif
+CFLAGS  += $(ARCH) $(OPT) -g3 -std=gnu11 $(WARN) $(EXTRA_WARN) -DSDT \
            -ffunction-sections -fdata-sections -fno-common \
            -isystem $(BSP)/include -MMD -MP
 APP_CFLAGS ?=
+TEMPLATE_SRCS ?=
+TEMPLATE_CFLAGS ?=
+file_cflags = $(APP_CFLAGS) $(if $(filter $(notdir $(1)),$(TEMPLATE_SRCS)),$(TEMPLATE_CFLAGS))
 LDFLAGS += $(ARCH) -specs=$(BSP)/Xilinx.spec -L$(BSP)/lib -L$(HW_OUT) -L$(OUT) -T link.ld \
            -Wl,--gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments \
            -Wl,-Map=$(OUT)/$(ELF).map -Wl,--print-memory-usage \
@@ -90,18 +110,18 @@ compdb: $(OUT_ROOT)/compile_commands.json
 $(OUT_ROOT)/compile_commands.json: FORCE
 	@mkdir -p $(OUT_ROOT)
 	@{ echo '['; sep=' '; for f in apps/*/*.c common/*.c; do d=$$(dirname $$f); a=$$(basename $$d); \
-	    af=$$([ $$a = common ] || $(MAKE) --no-print-directory -s APP=$$a print-app-cflags); \
+	    af=$$([ $$a = common ] || $(MAKE) --no-print-directory -s APP=$$a SRC=$$f print-app-cflags); \
 	    printf '%s{ "directory": "%s", "file": "%s",\n    "command": "%s %s -I%s -Icommon -c %s -o %s" }\n' \
 	        "$$sep" "$(CURDIR)" "$(CURDIR)/$$f" "$(CC) $(CFLAGS)" "$$af" "$$d" "$$f" "$(OUT_ROOT)/$$a/obj/$$(basename $${f%.c}).o"; \
 	    sep=','; done; echo ']'; } > $@.tmp
 	@cmp -s $@.tmp $@ && rm -f $@.tmp || mv $@.tmp $@
 
-$(OUT)/obj/common/%.o: common/%.c Makefile $(BSP)/lib/libxil.a
+$(OUT)/obj/common/%.o: common/%.c Makefile $(OUT)/cflags.txt $(BSP)/lib/libxil.a
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Icommon -c $< -o $@
 
-print-app-cflags:
-	@echo '$(APP_CFLAGS)'
+print-app-cflags:   # SRC=<file> adds TEMPLATE_CFLAGS if it is a template file
+	@echo '$(call file_cflags,$(SRC))'
 
 print-run-from:
 	@echo '$(RUN_FROM)'
@@ -113,14 +133,25 @@ $(OUT)/app.img: $(OUT)/$(ELF).elf ../scripts/mkimage.py common/mbv_image.h
 # BSP headers come in via -isystem, so -MMD does not track them: depend on the BSP
 # library instead, which every `make bsp` rebuilds (e.g. lwipopts.h after a
 # sw/bsp.conf change would otherwise not recompile the program).
-$(OUT)/obj/%.o: $(APPDIR)/%.c Makefile $(wildcard $(APPDIR)/app.mk) $(BSP)/lib/libxil.a
+$(OUT)/obj/%.o: $(APPDIR)/%.c Makefile $(wildcard $(APPDIR)/app.mk) $(OUT)/cflags.txt $(BSP)/lib/libxil.a
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -I$(APPDIR) -Icommon -c $< -o $@
+	$(CC) $(CFLAGS) $(call file_cflags,$<) -I$(APPDIR) -Icommon -c $< -o $@
 
-# REGION_ALIAS for link.ld; rewritten only when RUN_FROM changes.
+# Compiler flags of this build; rewritten only when they change (WERROR, EXTRA_WARN,
+# OPT, PRINTF_FLOAT, app.mk ...), and every object depends on it, so a flag change
+# recompiles everything instead of silently keeping old objects.
+FLAGS_STAMP := $(CC) $(CFLAGS) | $(APP_CFLAGS) | $(TEMPLATE_SRCS) | $(TEMPLATE_CFLAGS)
+$(OUT)/cflags.txt: FORCE
+	@mkdir -p $(OUT)
+	@echo '$(FLAGS_STAMP)' | cmp -s - $@ || echo '$(FLAGS_STAMP)' > $@
+
+# Link settings for link.ld: REGION_ALIAS plus, if set, the stack and minimum heap
+# size (otherwise link.ld's defaults: 8 KB stack, 4 KB minimum heap). Rewritten only
+# when RUN_FROM, STACK_SIZE or HEAP_MIN change, so a change relinks.
+REGION_LD := REGION_ALIAS("CODE", $(RUN_FROM));$(if $(STACK_SIZE), _STACK_SIZE = $(STACK_SIZE);)$(if $(HEAP_MIN), _MIN_HEAP = $(HEAP_MIN);)
 $(OUT)/region.ld: FORCE
 	@mkdir -p $(OUT)
-	@echo 'REGION_ALIAS("CODE", $(RUN_FROM));' | cmp -s - $@ || echo 'REGION_ALIAS("CODE", $(RUN_FROM));' > $@
+	@echo '$(REGION_LD)' | cmp -s - $@ || echo '$(REGION_LD)' > $@
 
 $(OUT)/$(ELF).elf: $(OBJS) link.ld $(OUT)/region.ld $(HW_OUT)/memory.ld $(wildcard $(BSP)/lib/*.a)
 	$(CC) $(LDFLAGS) $(OBJS) $(LDLIBS) -o $@

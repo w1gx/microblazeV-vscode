@@ -11,7 +11,15 @@
  *          them with scripts/run.sh.
  *
  * memory.ld (generated from the block design) defines LMB and DDR; the
- * Makefile adds REGION_ALIAS("CODE", ...).
+ * Makefile writes build/sw/<APP>/region.ld with REGION_ALIAS("CODE", ...) and,
+ * if STACK_SIZE / HEAP_MIN are set (make command line or apps/<APP>/app.mk),
+ * _STACK_SIZE / _MIN_HEAP, which override the defaults below.
+ *
+ * Stack: _STACK_SIZE bytes at the top of CODE (__stack = end - 16, grows down).
+ *        Nothing checks for overflow at run time; it silently runs into the heap.
+ * Heap:  everything between the end of the data (_heap_start) and the stack
+ *        (_heap_end); _sbrk/malloc return ENOMEM/NULL beyond it. _MIN_HEAP is
+ *        only a link-time check that at least that much is left.
  *
  *   [_boot][.text][.rodata][.data][.sdata][.sbss/.bss][heap ->      <- stack]
  *
@@ -24,6 +32,7 @@ INCLUDE region.ld
 
 ENTRY(_boot)
 
+/* Defaults; set them with make STACK_SIZE=... HEAP_MIN=... (or in app.mk), not here. */
 _STACK_SIZE = DEFINED(_STACK_SIZE) ? _STACK_SIZE : 0x2000;  /* 8 KB */
 _MIN_HEAP   = DEFINED(_MIN_HEAP)   ? _MIN_HEAP   : 0x1000;  /* link fails if less is left */
 

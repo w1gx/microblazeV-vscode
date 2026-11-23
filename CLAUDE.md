@@ -16,10 +16,12 @@ make program     # JTAG (LMB apps)   make flash    # SPI flash, boots at power-u
 make console     # UART 115200       make run      # system.bit via JTAG + ELF via xsdb (DDR apps, volatile)
 make debug-load  # like make run but CPU stays halted at the entry, for GDB on port 3004 (VS Code F5)
 make APP=echo    # programs = sw/apps/<APP>/ (default demo); APP works for make/program/flash/run
+make WERROR=0    # warnings don't stop the build (default -Werror); EXTRA_WARN=-W... adds more
 make bsp         # regenerate BSP only (after editing sw/bsp.conf)
 make gui         # Vivado GUI on build/hw/proj with "MBV:" toolbar buttons
 FORCE=1 make hw  # discard unexported GUI edits     make gui FRESH=1  # recreate project
 make RUN_FROM=DDR -C sw   # link into DDR (big programs/lwIP), load with make run; apps/<APP>/app.mk can set it
+make STACK_SIZE=0x4000 HEAP_MIN=0x10000   # stack size / minimum heap (default 0x2000 / 0x1000); app.mk can set them
 ```
 
 ## Pipeline
@@ -78,12 +80,14 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
   | UART Lite | `0x4060_0000` | 115200 8N1, IRQ 0 |
   | AXI GPIO 0 | `0x4000_0000` | 4 LEDs, `led_4bits` |
   | AXI GPIO 1 | `0x4001_0000` | ch1 `push_buttons_4bits`, ch2 `dip_switches_4bits`, IRQ 1 |
+  | AXI GPIO 2 | `0x4002_0000` | 12 outputs, `rgb_led` (LD0..LD3; bit 3n blue, 3n+1 green, 3n+2 red), no IRQ, SmartConnect M07 |
   | AXI Ethernet Lite | `0x40E0_0000` | `eth_mii` + `eth_mdio_mdc` (DP83848 PHY, 10/100 MII), IRQ 2 |
   | AXI Quad SPI | `0x44A0_0000` | `qspi_flash`, quad mode, SCK = `ui_clk`/2 = 40.6 MHz, no STARTUPE2 (SCK on pin L16), IRQ 3 |
-  | AXI Timer | `0x41C0_0000` | tick for lwIP / xiltimer, IRQ 4 |
-  | AXI INTC | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 5 inputs through the concat |
+  | AXI Timer 0 | `0x41C0_0000` | tick for lwIP / xiltimer (`XILTIMER_tick_timer:axi_timer_0`), IRQ 4 |
+  | AXI Timer 1 | `0x41C1_0000` | demo's RGB sequence (`rgb_seq.c`), IRQ 5, SmartConnect M08 |
+  | AXI INTC | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 6 inputs through the concat |
 
-- **Resources:** 46/135 RAMB36, about 19 % of LUTs. Timing met with about +1.3 ns WNS at 81 MHz.
+- **Resources:** 46/135 RAMB36, about 20 % of LUTs (12,541 with the second timer). Timing met with about +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO, +1.259 with axi_timer_1).
 - **Configuration settings:** the xdc adds CFGBVS/CONFIG_VOLTAGE plus `SPI_BUSWIDTH 4`,
   `CONFIGRATE 33` and `COMPRESS` for quad-SPI boot.
 
@@ -133,7 +137,7 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
    No DDR at all means removing the MIG and supplying a clock (Clocking Wizard on `sys_clk_i`) plus reset for the
    whole system. The xdc then needs a `create_clock` on `sys_clk_i`.
 4. **UART clock:** `C_S_AXI_ACLK_FREQ_HZ_d` to the new `ui_clk`/system clock.
-5. **Peripherals:** the board-interface names of UART, LEDs, buttons, switches, `eth_mii`/`eth_mdio_mdc` and
+5. **Peripherals:** the board-interface names of UART, LEDs, RGB LEDs, buttons, switches, `eth_mii`/`eth_mdio_mdc` and
    `qspi_flash` (`*_BOARD_INTERFACE`). Also the `eth_ref_clk` pin, if the PHY needs a clock from the FPGA at all.
 6. **Flash:** `FLASH_PART` and the config-bank settings (`CFGBVS`/`CONFIG_VOLTAGE`/SPI width) in the xdc.
 
@@ -180,11 +184,29 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   README "Where a program runs: block RAM or DDR" explains it for users: table, the fit check
   ("program does not fit in the CODE region"), and `.ddr` buffers as a middle way. Keep it in sync with
   `sw/Makefile` and `link.ld`.
+- **Stack and heap (`link.ld` + `region.ld`):** `sw/Makefile` writes `build/sw/<APP>/region.ld` (cmp-rewritten, so a
+  change relinks): `REGION_ALIAS("CODE", $(RUN_FROM))`, plus `_STACK_SIZE = …;` / `_MIN_HEAP = …;` only when
+  `STACK_SIZE` / `HEAP_MIN` are set (command line or `app.mk`). `link.ld` INCLUDEs it before its
+  `DEFINED(_STACK_SIZE) ? … : 0x2000` / `0x1000` defaults, so the defaults live only in `link.ld`. Stack = top
+  `_STACK_SIZE` bytes below `__stack`; heap = `_heap_start` (after `.noinit`, or after `.ddr` for DDR apps) up to
+  `_heap_end = _stack_end`, so there is no fixed heap size. `_MIN_HEAP` is just the link-time
+  `ASSERT` ("program does not fit in the CODE region"). The BSP's `_sbrk` (libxilstandalone) returns ENOMEM past
+  `_heap_end`; there is no run-time stack-overflow check. Verified: `STACK_SIZE=0x4000` moves `_stack_end` to
+  0x1bff0, `0x14000` trips the ASSERT for demo. README "Memory layout, stack and heap" documents it for users.
 - **`.ddr` section:** a NOLOAD section in DDR for big buffers
   (`__attribute__((section(".ddr")))`), not zeroed. With `RUN_FROM=DDR`, `region.ld` aliases
   CODE to DDR and the heap starts after `.ddr`.
 - **printf:** `-Dprintf=iprintf` and friends by default, because floating-point printf costs about 45 KB.
   `PRINTF_FLOAT=1` turns it back on. This toolchain has **no newlib-nano**.
+- **Warnings:** `WARN` in `sw/Makefile` = `-Wall -Wextra` + shadow/undef/format=2/strict- and missing-prototypes/
+  redundant-decls/cast-qual/write-strings/null-dereference/logical-op/duplicated-*/vla/`-Wstack-usage=2048`,
+  plus `-Werror` unless `WERROR=0`. `EXTRA_WARN` adds flags. demo, boot, `common/` and echo's own files are clean.
+  AMD's echo template files (`main.c`, `echo.c`, `platform.c`) are not: `app.mk` lists them in `TEMPLATE_SRCS` and
+  `TEMPLATE_CFLAGS` adds `-Wno-*` for them only (K&R `()` prototypes, `#if __MICROBLAZE__`, string literals as
+  `char *`, a second `dhcp_start` declaration). `print-app-cflags SRC=<file>` gives compdb the same per-file flags.
+  Objects depend on `build/sw/<APP>/cflags.txt` (compiler + all flags, rewritten only on change), so changing
+  `WERROR`, `EXTRA_WARN`, `OPT`, `PRINTF_FLOAT` or `app.mk` recompiles everything. A plain `make` with nothing
+  changed shows no gcc lines, so no `-Wall` in the output either.
 - **Names:** use AMD's `xparameters.h` names: `XPAR_XGPIO_0_BASEADDR`, `XPAR_XUARTLITE_0_BASEADDR`,
   `XPAR_CPU_CORE_CLOCK_FREQ_HZ`, `XPAR_LMB_BRAM_0_BASEADDRESS/HIGHADDRESS`,
   `XPAR_MIG_0_BASEADDRESS/HIGHADDRESS`.
@@ -201,7 +223,21 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   for the sync word AA995566).
 - **Demo:** `sw/apps/demo/main.c` prints the configuration, runs a 1 MB DDR test, checks the Ethernet PHY over MDIO (scans all
   32 addresses, ID and link via BMSR/PHYSTS) and the QSPI flash (JEDEC ID, so the right `FLASH_PART` is known), shows a light chaser on
-  the LEDs (speed set by the switches, buttons override), polls the buttons (no interrupts yet) and echoes the UART.
+  the LEDs (speed set by the switches, buttons override), polls the buttons (the only interrupt is the RGB timer's) and echoes the UART.
+- **RGB LEDs (`sw/apps/demo/rgb.c`):** software PWM on `axi_gpio_2`, 64 levels x 16 µs (1.024 ms period), timed with
+  the `cycle` CSR. It runs only inside `rgb_pwm_run(us)`, which busy-waits and switches the LEDs off when it returns.
+  The demo's main loop calls `rgb_pwm_run(5000)` where it used to `usleep(5000)`, after `rgb_seq_update()` (below).
+  `rgb_selftest()` writes and reads back 0xA5A/0x5A5/0xFFF/0 (an all-output axi_gpio reads back its data register),
+  then shows red, green and blue on each LED, all white and a brightness ramp. Only the readback is
+  checked automatically; the colours have to be checked by eye. `RGB_BRIGHT` = 16/64: full duty is glaring.
+- **RGB sequence (`sw/apps/demo/rgb_seq.c`, axi_timer_1):** counter 0 in generate mode, down count, auto reload,
+  TLR = 2 s × `XPAR_XTMRCTR_1_CLOCK_FREQUENCY` − 2 (period = TLR + 2 cycles). The ISR (`XTmrCtr_SetHandler`
+  callback, set up with `XSetupInterruptSystem`, normal INTC mode) only increments a counter. The main loop calls
+  `rgb_seq_update()` before every `rgb_pwm_run(5000)`: a new count starts one 1 s colour-wheel turn
+  (`rgb_rainbow()`), with the position from `TLR − XTmrCtr_GetValue()`, then `rgb_off()` until the next IRQ.
+  `RGB_SEQ_PERIOD_MS`/`RGB_SEQ_ROT_MS` in `rgb.h`. The demo's first interrupt user (buttons are still polled).
+  `XTmrCtr_Initialize` tracks "started" in the (cleared) instance, so it re-inits fine after a CPU reset.
+  The board's PWM still only runs inside `rgb_pwm_run()`; the timer only paces the sequence.
 - **Echo server (`sw/apps/echo`):**
   - **Source:** AMD's lwip_echo_server template (`Vivado/data/embeddedsw/lib/sw_apps/lwip_echo_server/src`).
     Copied: `main.c`, `echo.c`, `platform.c` and `platform.h`. Only `main.c` is changed, in lines marked `/* mb-test */`:
@@ -289,6 +325,9 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   one ethernet hardware instance"). That is expected, and it is why lwIP is added only when a MAC is present.
 - **Known BSP warnings:** `-Woverflow` / "excess elements" warnings in the generated `xmicroblaze_riscv_g.c`
   come from AMD and appear in Vitis builds too.
+- **Console capture:** only one process gets the UART's bytes. An open `minicom`/`make console` takes them all, so a
+  second reader sees nothing, which looks like a dead UART. Check with `ls -l /proc/*/fd | grep ttyUSB1` first.
+  Also, the FTDI chip keeps output from before the port was opened (e.g. the flashed program's banner at power-up).
 - **Debugging on the board with xsdb:** this is how the two bugs above were found.
   - **Target:** the CPU target is called **"Hart #0"**, under "RISC-V at USER2" (BSCAN), so filter `*hart*`.
   - **Where is it?** `memmap -file app.elf`, then `stop`, `bt` and `con`.
@@ -333,8 +372,14 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   - Hardware build: 10 min with the IP cache, WNS +1.312.
   - `eth_ref_clk` is exactly 25.000 MHz (40.000 ns) in timing.rpt.
   - The BSP auto-added lwip220 and built `liblwip220.a`; drivers emaclite, spi and tmrctr are present.
-  - The demo with the PHY and flash checks builds (now about 42 KB of code and data, 35 % of the LMB including the
+  - The demo with the PHY and flash checks builds (then about 42 KB of code and data, 35 % of the LMB including the
     `.noinit` copy) and runs on the board.
+- **RGB LEDs (axi_gpio_2):**
+  - Added by scripted Tcl against `build/hw/proj` + `mbv::export_bd` (`apply_board_connection -board_interface rgb_led`).
+  - `make hw`: 10 min with the IP cache, WNS +1.316, WHS +0.021.
+  - The BSP has `XPAR_XGPIO_2_BASEADDR 0x40020000` and `GPIO_WIDTH 12`.
+  - `system_wrapper_io_placed.rpt` puts `rgb_led_tri_o[0..11]` on E1 F6 G6 / G4 J4 G3 / H4 J2 J3 / K2 H6 K1, the board file's order.
+  - demo, echo and boot build without warnings and without M/A/C instructions. The demo uses about 47 KB of the LMB (`_heap_start` 0xbb50).
 - **Echo server build:**
   - `make APP=echo` builds without warnings: entry 0x80000000, lwIP linked, no M/A/C instructions.
   - `make APP=echo program` explains that DDR programs need `make run`.
@@ -367,8 +412,15 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   - DHCP on a normal home/office network works; the echo answers from another PC on the same network.
   - With `emaclite_drain_rx()`: ping 0.5 ms, TCP echo OK, 26 KB byte-identical.
 
+- **RGB LEDs (demo):** (with the earlier free-running rainbow, before the timer sequence) `rgb_selftest()` passes (readback, also checked over JTAG). Each LED shows red, green and blue
+  in the right order, then white and the ramp. The rainbow runs without visible flicker.
+
 ## Not yet verified on hardware
 
+- **axi_timer_1 RGB sequence:** hardware built (10 min with the IP cache, WNS +1.259, WHS +0.020; BSP has
+  `XPAR_XTMRCTR_1_BASEADDR 0x41c10000`, `XPAR_XTMRCTR_1_INTERRUPTS 0x2005`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x6`).
+  demo/boot/echo build without warnings or M/A/C instructions; demo uses 49 KB of the LMB. Not run on the board yet
+  (none was connected): check the 1 s rotation / 1 s off by eye, also after RESET.
 - **QSPI beyond RDID/READ:** `C_SPI_MEMORY=2` comes from the board preset. Program/erase from software isn't tested
   (only `make flash` through Vivado, and the bootloader's reads).
 - **IPv6:** not built or tested (see the gotcha).

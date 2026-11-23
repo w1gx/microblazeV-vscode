@@ -180,7 +180,7 @@ peripheral or library needs no Makefile change. Add the IP, `make hw`, and
 
 | Path | What |
 |---|---|
-| `hw/system_bd.tcl` | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer (`0x41C00000`), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer), MDM. Exported with `write_bd_tcl`. |
+| `hw/system_bd.tcl` | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI GPIO 2 (12 outputs for the four RGB LEDs, `0x40020000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer 0 (`0x41C00000`, lwIP/xiltimer tick), AXI Timer 1 (`0x41C10000`, the demo's RGB sequence), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer 0, 5 timer 1), MDM. Exported with `write_bd_tcl`. |
 | `hw/arty_a7_100.xdc` | The two clock pins (`sys_clk_i` in, `eth_ref_clk` out), configuration settings (quad-SPI boot) |
 | `hw/project.tcl` | Shared Vivado procedures: create the project, export the block design, build, BSP |
 | `hw/build_hw.tcl`, `hw/build_hw.sh` | `make hw`: recreate the project in `build/hw/proj`, synthesis, implementation, outputs to `build/hw/out`, then the BSP |
@@ -287,7 +287,7 @@ discards them. If `hw/system_bd.tcl` changed underneath the project (for example
 a `git pull`), `make gui FRESH=1` recreates the project from it.
 
 The board files come from the Vivado board store (`BOARD_REPO` in `scripts/env.sh`),
-so board interfaces such as `led_4bits`, `push_buttons_4bits`, `eth_mii` and `qspi_flash`
+so board interfaces such as `led_4bits`, `rgb_led`, `push_buttons_4bits`, `eth_mii` and `qspi_flash`
 are available. New peripherals get their drivers in the BSP automatically.
 
 ## Clocking and porting to another board
@@ -323,7 +323,7 @@ updated whenever the system clock changes.
 2. **Clock pin:** the `sys_clk_i` pin and I/O standard in the xdc.
 3. **DDR controller:** the MIG's DDR preset, and that its input clock matches the board's oscillator.
 4. **UART:** its clock setting.
-5. **Board-interface names:** UART, LEDs, buttons, switches, Ethernet (`eth_mii`, `eth_mdio_mdc`),
+5. **Board-interface names:** UART, LEDs, RGB LEDs (`rgb_led`), buttons, switches, Ethernet (`eth_mii`, `eth_mdio_mdc`),
    QSPI (`qspi_flash`), plus the Ethernet PHY clock pin, if the new PHY needs one.
 6. **Flash:** `FLASH_PART` for flashing.
 
@@ -338,7 +338,7 @@ build it with `make APP=<name>`.
 
 | Program | Runs from | Load with | What it does |
 |---|---|---|---|
-| `demo` | local memory | `make program` (or `make flash`) | Hardware summary, DDR test, Ethernet PHY and flash checks, LEDs/buttons/switches, UART echo |
+| `demo` | local memory | `make program` (or `make flash`) | Hardware summary, DDR test, Ethernet PHY and flash checks, RGB LED test, LEDs/buttons/switches, timer-interrupt RGB sequence, UART echo |
 | `echo` | DDR | `make run APP=echo` (debugger) or `make flash APP=echo` (bootloader) | lwIP TCP echo server on port 7 |
 | `boot` | local memory | used by `make flash` for DDR programs; `make program APP=boot` tests it without reflashing | Bootloader: copies a DDR program from flash to DDR at every start |
 
@@ -361,7 +361,7 @@ The linker script `sw/link.ld` places everything in that region (`REGION_ALIAS("
 
 | | `RUN_FROM=LMB` (default) | `RUN_FROM=DDR` |
 |---|---|---|
-| Space | 128 KB for code + data + heap, minus an 8 KB stack | 256 MB |
+| Space | 128 KB for code + data + heap, minus the stack (8 KB, `STACK_SIZE`) | 256 MB |
 | Speed | single-cycle memory, no cache needed | through the 16 KB caches |
 | Build output | `app.elf` + `download.bit` (the program is part of the bitstream) | `app.elf` + `app.img` (flash image) |
 | Try it | `make program APP=<name>` | `make run APP=<name>` (debugger, until RESET) |
@@ -385,6 +385,59 @@ The demo does that for its DDR test. Such buffers are not cleared and not loaded
 **Making a new program run from DDR:** create `sw/apps/<name>/app.mk` with `RUN_FROM := DDR`. From
 then on `make`, `make run` and `make flash` (with bootloader) do the right thing for it, and the VS Code
 tasks and debug configurations follow automatically.
+
+### Memory layout, stack and heap (`sw/link.ld`)
+
+All programs use the same linker script, `sw/link.ld`. It pulls in two small generated files:
+
+| File | Written by | Contains |
+|---|---|---|
+| `build/hw/out/memory.ld` | `hw/gen_memmap.tcl`, from the block design | the regions `LMB` (0x0, 128 KB) and `DDR` (0x80000000, 256 MB) |
+| `build/sw/<APP>/region.ld` | `sw/Makefile`, at every link | `REGION_ALIAS("CODE", LMB or DDR)` from `RUN_FROM`, plus `_STACK_SIZE` / `_MIN_HEAP` if set |
+
+Everything goes into the `CODE` region, in this order:
+```
+ORIGIN(CODE)                                                               ORIGIN+LENGTH
+[_boot][.text][.rodata][.data ...][.bss/.sbss][.noinit][ heap ->     <- stack ][16 B]
+                                                       ^_heap_start  ^_heap_end = _stack_end
+                                                                            __stack = end - 16
+```
+(`.ddr` buffers sit in DDR. For a DDR program, the heap starts after them.)
+
+**Setting the stack and heap sizes:** don't edit `sw/link.ld`, use two make variables (values in bytes,
+decimal or hex):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `STACK_SIZE` | `0x2000` (8 KB) | size of the stack at the top of the region |
+| `HEAP_MIN` | `0x1000` (4 KB) | the link fails unless at least this much is left for the heap |
+
+Like `RUN_FROM`, they can be set for one build or permanently for one program:
+```sh
+make APP=demo STACK_SIZE=0x4000             # one build with a 16 KB stack
+```
+```make
+# sw/apps/<name>/app.mk
+STACK_SIZE := 0x4000
+HEAP_MIN   := 0x10000
+```
+A change relinks the program (no recompile). The map file shows the result: look for `_stack_end`,
+`_heap_start` and `_heap_end` in `build/sw/<APP>/app.map`.
+
+**There is no fixed heap size.** The heap always gets *all* the memory between the end of the program's
+data and the stack, so a bigger stack means a smaller heap and vice versa. `HEAP_MIN` only guards that
+at least that much is left; if not, the link fails with `program does not fit in the CODE region`.
+At run time `malloc` returns `NULL` when the heap is used up (the BSP's `_sbrk` stops at `_heap_end`).
+
+**Nothing checks the stack at run time.** A stack overflow silently overwrites the top of the heap. The
+compiler helps at build time: `-Wstack-usage=2048` warns about any function with a frame over 2 KB, and
+`-Werror` makes that an error. Big arrays belong in `static` storage, the heap or a `.ddr` buffer, not
+on the stack. Interrupt handlers run on the same stack.
+
+**Don't touch** the symbols the runtime needs (`__stack`, `_heap_start/_heap_end`, `__bss_start`, `_end`,
+`__global_pointer$`, `.drvcfg_sec`, `.noinit`); the comments in `sw/link.ld` say why. In particular
+`__stack` must stay 16 bytes below the end of the region: `boot.S` writes to `0(sp)` right away, and at
+the very end of the region that store hangs the CPU before `main()`.
 
 ### lwIP echo server (`APP=echo`)
 
@@ -494,14 +547,38 @@ other zeroed memory are cleared by the program itself. The image format is in
   8 MB) so neither of them gets overwritten.
 - **Startup checks:** the demo prints the Ethernet PHY's ID and link state (read over MDIO) and the
   flash's JEDEC ID. The ID line also names the `FLASH_PART` value `make flash` needs for this board.
+- **RGB LEDs:** the demo checks the GPIO register (write, read back) and then lights LD0..LD3 red,
+  green and blue in turn, all white, and a short brightness ramp. Watch the LEDs: the console only
+  shows the readback result. The code is in `sw/apps/demo/rgb.c`.
+  Each LED has three bits in `axi_gpio_2` (bit 3n blue, 3n+1 green, 3n+2 red for LD*n*). The
+  brightness comes from software PWM (64 levels, about 1 kHz), which runs only while
+  `rgb_pwm_run()` is called. The demo uses it instead of `usleep()` in its main loop. The demo
+  uses 25 % duty, because full brightness is glaring.
+- **RGB sequence (timer interrupt):** after the test, the second AXI Timer (`axi_timer_1`, interrupt 5)
+  interrupts every 2 s. Each interrupt starts one turn of the colour wheel on LD0..LD3 (1 s, the four
+  LEDs 90° apart), then the LEDs stay off until the next interrupt. The timer's own count gives the
+  position within the turn. The code is in `sw/apps/demo/rgb_seq.c`; the period and the length of
+  the turn are `RGB_SEQ_PERIOD_MS` and `RGB_SEQ_ROT_MS` in `rgb.h`. The interrupt is set up with
+  AMD's `XSetupInterruptSystem()` and the XTmrCtr driver (`XTmrCtr_SetHandler`), which makes it a
+  short example of a driver interrupt in the demo. If no colours appear at all, the interrupt
+  isn't arriving.
 - **Memory layout:** each program runs entirely from block RAM or entirely from DDR, chosen with
   `RUN_FROM`. See "Where a program runs: block RAM or DDR" under Programs. The stack is 8 KB
-  (`_STACK_SIZE` in `sw/link.ld`), and the heap gets the rest of the chosen memory.
+  by default (`STACK_SIZE`), and the heap gets the rest of the chosen memory. See "Memory layout,
+  stack and heap" under Programs.
 - **Names:** use AMD's names from `xparameters.h`, for example
   `XPAR_XGPIO_0_BASEADDR` and `XPAR_XUARTLITE_0_BASEADDR`. Drivers are initialised by base
   address: `XGpio_Initialize(&gpio, XPAR_XGPIO_0_BASEADDR)`.
 - **printf:** `printf` maps to newlib's integer-only `iprintf`. Use `make PRINTF_FLOAT=1`
   to get floating point, which costs about 45 KB. `xil_printf` is smaller still.
+- **Compiler warnings:** programs compile with `-Wall -Wextra` plus a stricter set (`-Wshadow`,
+  `-Wundef`, `-Wstrict-prototypes`, `-Wmissing-prototypes`, `-Wcast-qual`, `-Wwrite-strings`,
+  `-Wstack-usage=2048` and others, see `WARN` in `sw/Makefile`), and **`-Werror`**, so any warning
+  stops the build. `make WERROR=0` keeps them as warnings while you experiment.
+  `make EXTRA_WARN=-Wswitch-enum` adds more. Changing any of these recompiles the program;
+  when nothing changed, `make` compiles nothing and shows no compiler lines. A program's
+  `app.mk` can relax warnings for copied AMD template files only
+  (`TEMPLATE_SRCS`/`TEMPLATE_CFLAGS`, as in `sw/apps/echo/app.mk`).
 - **Interrupts and exceptions:** these use AMD's API (`Xil_ExceptionRegisterHandler`,
   `XIntc_*`, or the `XSetupInterruptSystem` helper in `xinterrupt_wrap.h`). The AXI INTC
   is set to fast-interrupt mode (`C_HAS_FAST=1`).
