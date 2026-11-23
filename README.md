@@ -180,7 +180,7 @@ peripheral or library needs no Makefile change. Add the IP, `make hw`, and
 
 | Path | What |
 |---|---|
-| `hw/system_bd.tcl` | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI GPIO 2 (12 outputs for the four RGB LEDs, `0x40020000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer (`0x41C00000`), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer), MDM. Exported with `write_bd_tcl`. |
+| `hw/system_bd.tcl` | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI GPIO 2 (12 outputs for the four RGB LEDs, `0x40020000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer 0 (`0x41C00000`, lwIP/xiltimer tick), AXI Timer 1 (`0x41C10000`, the demo's RGB sequence), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer 0, 5 timer 1), MDM. Exported with `write_bd_tcl`. |
 | `hw/arty_a7_100.xdc` | The two clock pins (`sys_clk_i` in, `eth_ref_clk` out), configuration settings (quad-SPI boot) |
 | `hw/project.tcl` | Shared Vivado procedures: create the project, export the block design, build, BSP |
 | `hw/build_hw.tcl`, `hw/build_hw.sh` | `make hw`: recreate the project in `build/hw/proj`, synthesis, implementation, outputs to `build/hw/out`, then the BSP |
@@ -338,7 +338,7 @@ build it with `make APP=<name>`.
 
 | Program | Runs from | Load with | What it does |
 |---|---|---|---|
-| `demo` | local memory | `make program` (or `make flash`) | Hardware summary, DDR test, Ethernet PHY and flash checks, RGB LED test, LEDs/buttons/switches, RGB rainbow, UART echo |
+| `demo` | local memory | `make program` (or `make flash`) | Hardware summary, DDR test, Ethernet PHY and flash checks, RGB LED test, LEDs/buttons/switches, timer-interrupt RGB sequence, UART echo |
 | `echo` | DDR | `make run APP=echo` (debugger) or `make flash APP=echo` (bootloader) | lwIP TCP echo server on port 7 |
 | `boot` | local memory | used by `make flash` for DDR programs; `make program APP=boot` tests it without reflashing | Bootloader: copies a DDR program from flash to DDR at every start |
 
@@ -549,11 +549,19 @@ other zeroed memory are cleared by the program itself. The image format is in
   flash's JEDEC ID. The ID line also names the `FLASH_PART` value `make flash` needs for this board.
 - **RGB LEDs:** the demo checks the GPIO register (write, read back) and then lights LD0..LD3 red,
   green and blue in turn, all white, and a short brightness ramp. Watch the LEDs: the console only
-  shows the readback result. Afterwards they show a slow rainbow. The code is in `sw/apps/demo/rgb.c`.
+  shows the readback result. The code is in `sw/apps/demo/rgb.c`.
   Each LED has three bits in `axi_gpio_2` (bit 3n blue, 3n+1 green, 3n+2 red for LD*n*). The
   brightness comes from software PWM (64 levels, about 1 kHz), which runs only while
   `rgb_pwm_run()` is called. The demo uses it instead of `usleep()` in its main loop. The demo
   uses 25 % duty, because full brightness is glaring.
+- **RGB sequence (timer interrupt):** after the test, the second AXI Timer (`axi_timer_1`, interrupt 5)
+  interrupts every 2 s. Each interrupt starts one turn of the colour wheel on LD0..LD3 (1 s, the four
+  LEDs 90° apart), then the LEDs stay off until the next interrupt. The timer's own count gives the
+  position within the turn. The code is in `sw/apps/demo/rgb_seq.c`; the period and the length of
+  the turn are `RGB_SEQ_PERIOD_MS` and `RGB_SEQ_ROT_MS` in `rgb.h`. The interrupt is set up with
+  AMD's `XSetupInterruptSystem()` and the XTmrCtr driver (`XTmrCtr_SetHandler`), which makes it a
+  short example of a driver interrupt in the demo. If no colours appear at all, the interrupt
+  isn't arriving.
 - **Memory layout:** each program runs entirely from block RAM or entirely from DDR, chosen with
   `RUN_FROM`. See "Where a program runs: block RAM or DDR" under Programs. The stack is 8 KB
   by default (`STACK_SIZE`), and the heap gets the rest of the chosen memory. See "Memory layout,

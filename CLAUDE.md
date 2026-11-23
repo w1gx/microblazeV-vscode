@@ -83,10 +83,11 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
   | AXI GPIO 2 | `0x4002_0000` | 12 outputs, `rgb_led` (LD0..LD3; bit 3n blue, 3n+1 green, 3n+2 red), no IRQ, SmartConnect M07 |
   | AXI Ethernet Lite | `0x40E0_0000` | `eth_mii` + `eth_mdio_mdc` (DP83848 PHY, 10/100 MII), IRQ 2 |
   | AXI Quad SPI | `0x44A0_0000` | `qspi_flash`, quad mode, SCK = `ui_clk`/2 = 40.6 MHz, no STARTUPE2 (SCK on pin L16), IRQ 3 |
-  | AXI Timer | `0x41C0_0000` | tick for lwIP / xiltimer, IRQ 4 |
-  | AXI INTC | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 5 inputs through the concat |
+  | AXI Timer 0 | `0x41C0_0000` | tick for lwIP / xiltimer (`XILTIMER_tick_timer:axi_timer_0`), IRQ 4 |
+  | AXI Timer 1 | `0x41C1_0000` | demo's RGB sequence (`rgb_seq.c`), IRQ 5, SmartConnect M08 |
+  | AXI INTC | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 6 inputs through the concat |
 
-- **Resources:** 46/135 RAMB36, about 19 % of LUTs (12,227). Timing met with about +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO).
+- **Resources:** 46/135 RAMB36, about 20 % of LUTs (12,541 with the second timer). Timing met with about +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO, +1.259 with axi_timer_1).
 - **Configuration settings:** the xdc adds CFGBVS/CONFIG_VOLTAGE plus `SPI_BUSWIDTH 4`,
   `CONFIGRATE 33` and `COMPRESS` for quad-SPI boot.
 
@@ -222,13 +223,21 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   for the sync word AA995566).
 - **Demo:** `sw/apps/demo/main.c` prints the configuration, runs a 1 MB DDR test, checks the Ethernet PHY over MDIO (scans all
   32 addresses, ID and link via BMSR/PHYSTS) and the QSPI flash (JEDEC ID, so the right `FLASH_PART` is known), shows a light chaser on
-  the LEDs (speed set by the switches, buttons override), polls the buttons (no interrupts yet) and echoes the UART.
+  the LEDs (speed set by the switches, buttons override), polls the buttons (the only interrupt is the RGB timer's) and echoes the UART.
 - **RGB LEDs (`sw/apps/demo/rgb.c`):** software PWM on `axi_gpio_2`, 64 levels x 16 µs (1.024 ms period), timed with
   the `cycle` CSR. It runs only inside `rgb_pwm_run(us)`, which busy-waits and switches the LEDs off when it returns.
-  The demo's main loop calls `rgb_pwm_run(5000)` where it used to `usleep(5000)`, and advances a rainbow by 1° per call.
+  The demo's main loop calls `rgb_pwm_run(5000)` where it used to `usleep(5000)`, after `rgb_seq_update()` (below).
   `rgb_selftest()` writes and reads back 0xA5A/0x5A5/0xFFF/0 (an all-output axi_gpio reads back its data register),
   then shows red, green and blue on each LED, all white and a brightness ramp. Only the readback is
   checked automatically; the colours have to be checked by eye. `RGB_BRIGHT` = 16/64: full duty is glaring.
+- **RGB sequence (`sw/apps/demo/rgb_seq.c`, axi_timer_1):** counter 0 in generate mode, down count, auto reload,
+  TLR = 2 s × `XPAR_XTMRCTR_1_CLOCK_FREQUENCY` − 2 (period = TLR + 2 cycles). The ISR (`XTmrCtr_SetHandler`
+  callback, set up with `XSetupInterruptSystem`, normal INTC mode) only increments a counter. The main loop calls
+  `rgb_seq_update()` before every `rgb_pwm_run(5000)`: a new count starts one 1 s colour-wheel turn
+  (`rgb_rainbow()`), with the position from `TLR − XTmrCtr_GetValue()`, then `rgb_off()` until the next IRQ.
+  `RGB_SEQ_PERIOD_MS`/`RGB_SEQ_ROT_MS` in `rgb.h`. The demo's first interrupt user (buttons are still polled).
+  `XTmrCtr_Initialize` tracks "started" in the (cleared) instance, so it re-inits fine after a CPU reset.
+  The board's PWM still only runs inside `rgb_pwm_run()`; the timer only paces the sequence.
 - **Echo server (`sw/apps/echo`):**
   - **Source:** AMD's lwip_echo_server template (`Vivado/data/embeddedsw/lib/sw_apps/lwip_echo_server/src`).
     Copied: `main.c`, `echo.c`, `platform.c` and `platform.h`. Only `main.c` is changed, in lines marked `/* mb-test */`:
@@ -403,11 +412,15 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   - DHCP on a normal home/office network works; the echo answers from another PC on the same network.
   - With `emaclite_drain_rx()`: ping 0.5 ms, TCP echo OK, 26 KB byte-identical.
 
-- **RGB LEDs (demo):** `rgb_selftest()` passes (readback, also checked over JTAG). Each LED shows red, green and blue
+- **RGB LEDs (demo):** (with the earlier free-running rainbow, before the timer sequence) `rgb_selftest()` passes (readback, also checked over JTAG). Each LED shows red, green and blue
   in the right order, then white and the ramp. The rainbow runs without visible flicker.
 
 ## Not yet verified on hardware
 
+- **axi_timer_1 RGB sequence:** hardware built (10 min with the IP cache, WNS +1.259, WHS +0.020; BSP has
+  `XPAR_XTMRCTR_1_BASEADDR 0x41c10000`, `XPAR_XTMRCTR_1_INTERRUPTS 0x2005`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x6`).
+  demo/boot/echo build without warnings or M/A/C instructions; demo uses 49 KB of the LMB. Not run on the board yet
+  (none was connected): check the 1 s rotation / 1 s off by eye, also after RESET.
 - **QSPI beyond RDID/READ:** `C_SPI_MEMORY=2` comes from the board preset. Program/erase from software isn't tested
   (only `make flash` through Vivado, and the bootloader's reads).
 - **IPv6:** not built or tested (see the gotcha).
