@@ -8,7 +8,7 @@ README.md is the user-facing guide. This file covers how things work and what to
 
 ## Commands
 
-```
+```sh
 make hw          # batch hardware build (~15 min, ~1 min if fingerprint matches), then BSP; never implicit
 REBUILD=1 make hw # full build even if the fingerprint matches
 make             # app: compile + link into build/sw/<APP>/; LMB apps -> download.bit (updatemem), DDR apps -> app.img
@@ -55,6 +55,9 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
   comment-stripped `hw/system_bd.tcl` and xdc. After a successful build it goes to `build/hw/out/source.fingerprint`
   (deleted before a full build starts, so an interrupted build never matches). `build_hw.tcl` and `mbv::build`
   skip implementation when all outputs exist and the fingerprint matches. `REBUILD=1` overrides this.
+  On such a skip, `mbv::confirm_outputs` touches `source.fingerprint`. `hw-check` (top Makefile) compares `HW_SRC`
+  mtimes against that file (fallback `system.bit`), so a file git rewrote with the same content (seen after merging
+  PR #1: "system_bd.tcl is newer than the bitstream" while `make hw` had nothing to do) stops warning after one `make hw`.
   Project settings outside the BD and xdc (run strategies etc.) are **not** in the fingerprint. Use `REBUILD=1` after changing them.
 - **IP cache:** `mbv::setup_project` sets `IP_OUTPUT_REPO build/hw/ipcache` and
   `IP_CACHE_PERMISSIONS {read write}` (on project creation and in `gui.tcl` on open).
@@ -75,19 +78,19 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
   cover DDR. The debug module is enabled.
 - **Address map:**
 
-  | Block | Address | Notes |
-  |---|---|---|
-  | LMB | `0x0000_0000` | 128 KB, 32 RAMB36 |
-  | DDR3 | `0x8000_0000` | 256 MB |
-  | UART Lite | `0x4060_0000` | 115200 8N1, IRQ 0 |
-  | AXI GPIO 0 | `0x4000_0000` | 4 LEDs, `led_4bits` |
-  | AXI GPIO 1 | `0x4001_0000` | ch1 `push_buttons_4bits`, ch2 `dip_switches_4bits`, IRQ 1 |
-  | AXI GPIO 2 | `0x4002_0000` | 12 outputs, `rgb_led` (LD0..LD3; bit 3n blue, 3n+1 green, 3n+2 red), no IRQ, SmartConnect M07 |
-  | AXI Ethernet Lite | `0x40E0_0000` | `eth_mii` + `eth_mdio_mdc` (DP83848 PHY, 10/100 MII), IRQ 2 |
-  | AXI Quad SPI | `0x44A0_0000` | `qspi_flash`, quad mode, SCK = `ui_clk`/2 = 40.6 MHz, no STARTUPE2 (SCK on pin L16), IRQ 3 |
-  | AXI Timer 0 | `0x41C0_0000` | tick for lwIP / xiltimer (`XILTIMER_tick_timer:axi_timer_0`), IRQ 4 |
-  | AXI Timer 1 | `0x41C1_0000` | demo's RGB sequence (`modules/rgb/rgb_seq.c`), IRQ 5, SmartConnect M08 |
-  | AXI INTC | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 6 inputs through the concat |
+  | Block             | Address       | Notes                                                                                         |
+  | ----------------- | ------------- | --------------------------------------------------------------------------------------------- |
+  | LMB               | `0x0000_0000` | 128 KB, 32 RAMB36                                                                             |
+  | DDR3              | `0x8000_0000` | 256 MB                                                                                        |
+  | UART Lite         | `0x4060_0000` | 115200 8N1, IRQ 0                                                                             |
+  | AXI GPIO 0        | `0x4000_0000` | 4 LEDs, `led_4bits`                                                                           |
+  | AXI GPIO 1        | `0x4001_0000` | ch1 `push_buttons_4bits`, ch2 `dip_switches_4bits`, IRQ 1                                     |
+  | AXI GPIO 2        | `0x4002_0000` | 12 outputs, `rgb_led` (LD0..LD3; bit 3n blue, 3n+1 green, 3n+2 red), no IRQ, SmartConnect M07 |
+  | AXI Ethernet Lite | `0x40E0_0000` | `eth_mii` + `eth_mdio_mdc` (DP83848 PHY, 10/100 MII), IRQ 2                                   |
+  | AXI Quad SPI      | `0x44A0_0000` | `qspi_flash`, quad mode, SCK = `ui_clk`/2 = 40.6 MHz, no STARTUPE2 (SCK on pin L16), IRQ 3    |
+  | AXI Timer 0       | `0x41C0_0000` | tick for lwIP / xiltimer (`XILTIMER_tick_timer:axi_timer_0`), IRQ 4                           |
+  | AXI Timer 1       | `0x41C1_0000` | demo's RGB sequence (`modules/rgb/rgb_seq.c`), IRQ 5, SmartConnect M08                        |
+  | AXI INTC          | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 6 inputs through the concat                         |
 
 - **Resources:** 46/135 RAMB36, about 20 % of LUTs (12,541 with the second timer). Timing met with about +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO, +1.259 with axi_timer_1).
 - **Configuration settings:** the xdc adds CFGBVS/CONFIG_VOLTAGE plus `SPI_BUSWIDTH 4`,
@@ -95,7 +98,7 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
 
 ## Clocking (important when changing anything clock-related or moving to another board)
 
-```
+```txt
 pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-ended, input 99.997 MHz)
                                                     │  MMCM: DDR3 at 3077 ps (325 MHz), PHY ratio 4:1
                                                     ├─ ui_clk        81.25 MHz ─> CPU, LMB, all AXI, UART, GPIO, INTC
@@ -133,6 +136,7 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   baud rate is wrong. Update it with every clock change.
 
 **Checklist for moving to another board:**
+
 1. **Board files:** board part in `hw/project.tcl` (`board_part`, `part`), plus the board files in `BOARD_REPO`.
 2. **Clock pin:** in the xdc, the `sys_clk_i` pin and IO standard of the new board's oscillator.
 3. **MIG:** the new board's DDR preset name (`BOARD_MIG_PARAM`), and that its input clock period matches the oscillator.
@@ -293,12 +297,12 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   `mbv::create_project` broke `create_project`. Use `::cmd` or distinct names.
 - **Watching the GUI log:** `build/hw/gui/vivado.log` also contains Vivado's echo of sourced scripts (`## error "..."`)
   and the copied logs of the synth/impl child runs (their `Exiting Vivado` lines). To wait for a GUI build, match only
-  `^mbv: hardware and BSP done` or `^ERROR: `.
+  `^mbv: hardware and BSP done` or `^ERROR:`.
 - **Concurrent builds:** two hardware builds at once break each other. Vivado rotates `build_hw.log` to
   `*.backup.log` when a second session starts, and the second `new_project` deletes `build/hw/proj` under
   the first. That's why `build_hw.sh` holds `flock build/hw/.build_hw.lock` and reads its result from
   `console.log`. Top-level `make` never starts `make hw` implicitly. `hw-check` only warns when
-  `HW_SRC` is newer than `system.bit` (the VS Code build task used to trigger a 15-min build silently).
+  `HW_SRC` is newer than `source.fingerprint` (see Fingerprint; the VS Code build task used to trigger a 15-min build silently).
 - **No display in VS Code:** VS Code Remote-SSH terminals have no `DISPLAY`. Vivado then fails "Display test failed",
   runs the `-source` script anyway and exits. `scripts/gui.sh` tests `DISPLAY` with `xset q` and otherwise borrows a
   working `DISPLAY` from another process of the same user (`/proc/*/environ`), e.g. an `ssh -X` session. Vivado needs a
