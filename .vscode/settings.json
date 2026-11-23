@@ -3,7 +3,16 @@
     // (compile_commands.json); keep Makefile Tools from taking over.
     "makefile.configureOnOpen": false,
     "makefile.makefilePath": "${workspaceFolder}/Makefile",
-
+    "cpp-check-lint.cppcheck.--language=": "c",
+    "cpp-check-lint.cppcheck.--onsave": true,
+    "cpp-check-lint.cpplint.--enable": true,
+    "cpp-check-lint.cpplint.--linelength=": 150,
+    "cpp-check-lint.cpplint.--verbose=": 1,
+    "cpp-check-lint.cpplint.--recursive": true,
+    "cpp-check-lint.cpplint.--filter=": "-whitespace/braces, -whitespace/comments, -readability/alt_text, -build/header_guard, -build/include_subdir , -readability/casting, -legal/copyright",
+    "cpp-check-lint.--log": 1,
+    "cpp-check-lint.cppcheck.--std_c=": "c99",
+    "cpp-check-lint.cppcheck.-j": 2,
     // build/hw/proj is the throw-away Vivado project: thousands of files that
     // only slow down search and the file watcher. build/bsp stays searchable
     // so the driver sources and headers can be browsed.

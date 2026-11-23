@@ -11,7 +11,7 @@ command-line tools that ship with Vivado:
 
 The Vitis IDE is not used.
 
-```
+```sh
 make hw          # after changing hw/ (~15 min; about 1 min if nothing changed)
 make             # compile, link, merge into the bitstream (seconds)
 make program     # load over JTAG
@@ -24,6 +24,7 @@ make debug-load  # load a program halted for the debugger (VS Code: F5, see "Deb
 make run APP=echo     # lwIP echo server, loaded into DDR through the debugger (see "Programs")
 make flash APP=echo   # echo server + bootloader into flash, starts at power-up
 ```
+
 `APP=<name>` picks the program in `sw/apps/` for every command (default `demo`).
 
 ## VS Code
@@ -39,7 +40,7 @@ file in `sw/apps/` (every program). `.vscode/c_cpp_properties.json` points the C
 IntelliSense then uses the same compiler, `-march`/`-mabi`, defines and include paths as
 the real build, so it finds:
 
-- your own headers in `sw/apps/<program>/`
+- your own headers in `sw/apps/<program>/` and its subfolders (e.g. `modules/rgb/`)
 - the BSP: `xparameters.h`, every driver header (`xgpio.h`, `xuartlite_l.h`, ...),
   `xil_printf.h`, `sleep.h`, ...
 - the RISC-V C library (`stdio.h`, `stdint.h`, ...)
@@ -67,20 +68,20 @@ to build (*demo* or *echo*). The program, flash and run tasks ask the same. Comp
 appear in the Problems panel and are clickable. Everything else is under
 **Terminal → Run Task**:
 
-| Task | Runs | What it does |
-|---|---|---|
-| build | `make APP=…` | Compile and link. Block-RAM programs also get `download.bit`, DDR programs `app.img` |
-| program (JTAG) | `make program APP=…` | Load `download.bit` into the FPGA (block-RAM programs) |
-| console | `scripts/console.py` | Serial terminal in its own panel (type into it; Ctrl+] quits) |
-| program + console | both | Program, then open the console |
-| flash (SPI) | `make flash APP=…` | Write to the configuration flash. DDR programs go in together with the bootloader |
-| run (xsdb, e.g. echo) | `make run APP=…` | Configure the FPGA with the plain hardware, load `app.elf` through the debugger. Needed for DDR programs such as *echo* |
-| debug: load … | `make debug-load APP=…` | Used by the debug configurations: load the program halted at its entry point |
-| debug: hw_server | `scripts/hw_server.sh` | Used by the *Attach* configurations: start AMD's `hw_server` if it isn't running |
-| open block design in Vivado | `make gui` | Vivado GUI with the MBV toolbar buttons |
-| build hardware + BSP | `make hw` | Batch hardware build (~15 min) |
-| regenerate BSP | `make bsp` | After editing `sw/bsp.conf` |
-| clean | `make clean` | Remove `build/sw` |
+| Task                        | Runs                    | What it does                                                                                                            |
+| --------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| build                       | `make APP=…`            | Compile and link. Block-RAM programs also get `download.bit`, DDR programs `app.img`                                    |
+| program (JTAG)              | `make program APP=…`    | Load `download.bit` into the FPGA (block-RAM programs)                                                                  |
+| console                     | `scripts/console.py`    | Serial terminal in its own panel (type into it; Ctrl+] quits)                                                           |
+| program + console           | both                    | Program, then open the console                                                                                          |
+| flash (SPI)                 | `make flash APP=…`      | Write to the configuration flash. DDR programs go in together with the bootloader                                       |
+| run (xsdb, e.g. echo)       | `make run APP=…`        | Configure the FPGA with the plain hardware, load `app.elf` through the debugger. Needed for DDR programs such as *echo* |
+| debug: load …               | `make debug-load APP=…` | Used by the debug configurations: load the program halted at its entry point                                            |
+| debug: hw_server            | `scripts/hw_server.sh`  | Used by the *Attach* configurations: start AMD's `hw_server` if it isn't running                                        |
+| open block design in Vivado | `make gui`              | Vivado GUI with the MBV toolbar buttons                                                                                 |
+| build hardware + BSP        | `make hw`               | Batch hardware build (~15 min)                                                                                          |
+| regenerate BSP              | `make bsp`              | After editing `sw/bsp.conf`                                                                                             |
+| clean                       | `make clean`            | Remove `build/sw`                                                                                                       |
 
 ### Vivado GUI from VS Code (Remote-SSH)
 
@@ -94,6 +95,7 @@ runs, and **Vivado closes when that session ends**. With no usable display at al
 forwarding a start has failed once with an X11 error. Running it again worked.
 
 To give VS Code its own display, enable X11 forwarding for the Remote-SSH connection:
+
 - **SSH config:** add `ForwardX11 yes` (or `ForwardX11Trusted yes`) to the host's entry in the
   ssh config on the machine running VS Code.
 - **Local X server:** run one there, and make sure `DISPLAY` is set in the environment VS Code
@@ -106,10 +108,10 @@ The **Run and Debug** view (Ctrl+Shift+D) has five configurations. They use the 
 `riscv32-xilinx-elf-gdb`, which connects to AMD's `hw_server` (GDB server for RISC-V on port
 **3004**):
 
-| Configuration | What happens |
-|---|---|
-| **Debug program of open file** | Like *Debug demo/echo*, for the program whose source file is open in the active editor (`sw/apps/echo/…` → echo). |
-| **Debug demo** / **Debug echo** | Builds the program, configures the FPGA, loads the program and stops at `main()`. Then step, set breakpoints, watch variables as usual. |
+| Configuration                     | What happens                                                                                                                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Debug program of open file**    | Like *Debug demo/echo*, for the program whose source file is open in the active editor (`sw/apps/echo/…` → echo, `sw/apps/demo/modules/rgb/rgb.c` → demo).                                  |
+| **Debug demo** / **Debug echo**   | Builds the program, configures the FPGA, loads the program and stops at `main()`. Then step, set breakpoints, watch variables as usual.                                                     |
 | **Attach demo** / **Attach echo** | Connects to whatever is running right now (e.g. started from flash or with `make run`) and stops where it is. Nothing is reloaded. Pick the configuration that matches the running program. |
 
 - **Choosing the configuration:** **F5 always starts the configuration selected at the top of the Run and Debug view**
@@ -178,19 +180,19 @@ peripheral or library needs no Makefile change. Add the IP, `make hw`, and
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `hw/system_bd.tcl` | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI GPIO 2 (12 outputs for the four RGB LEDs, `0x40020000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer 0 (`0x41C00000`, lwIP/xiltimer tick), AXI Timer 1 (`0x41C10000`, the demo's RGB sequence), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer 0, 5 timer 1), MDM. Exported with `write_bd_tcl`. |
-| `hw/arty_a7_100.xdc` | The two clock pins (`sys_clk_i` in, `eth_ref_clk` out), configuration settings (quad-SPI boot) |
-| `hw/project.tcl` | Shared Vivado procedures: create the project, export the block design, build, BSP |
-| `hw/build_hw.tcl`, `hw/build_hw.sh` | `make hw`: recreate the project in `build/hw/proj`, synthesis, implementation, outputs to `build/hw/out`, then the BSP |
-| `hw/gui.tcl`, `hw/gui/`, `scripts/gui.sh` | `make gui`: Vivado GUI with the MBV toolbar commands (icons in `hw/gui/icons/`) |
-| `hw/gen_memmap.tcl` | `memory.ld` (LMB/DDR regions) and `cpu.mk` (`-march`/`-mabi`) from the block design |
-| `scripts/build_bsp.sh`, `sw/bsp.conf` | BSP generation (see above) and its configuration |
-| `sw/` | `link.ld`, `Makefile`, `bsp.conf`, `apps/<program>/` (one directory per program: `demo`, `echo`, `boot`), `common/` (built into every program: `data_restore.c`, `mbv_image.h`), `drivers/xparameters.h` (link to the generated file) |
-| `scripts/` | `program.sh` (JTAG), `flash.sh` (SPI flash), `run.sh` (xsdb load, `-s` = halted), `console.py`, `mkimage.py` (flash image for the bootloader), `hw_server.sh`, `build_bsp.sh`, `gui.sh`, shared `env.sh` |
-| `.vscode/` | IntelliSense configuration, tasks, debug configurations (`launch.json`), editor settings |
-| `build/` | Everything generated, safe to delete |
+| Path                                      | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hw/system_bd.tcl`                        | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI GPIO 2 (12 outputs for the four RGB LEDs, `0x40020000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer 0 (`0x41C00000`, lwIP/xiltimer tick), AXI Timer 1 (`0x41C10000`, the demo's RGB sequence), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer 0, 5 timer 1), MDM. Exported with `write_bd_tcl`. |
+| `hw/arty_a7_100.xdc`                      | The two clock pins (`sys_clk_i` in, `eth_ref_clk` out), configuration settings (quad-SPI boot)                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `hw/project.tcl`                          | Shared Vivado procedures: create the project, export the block design, build, BSP                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `hw/build_hw.tcl`, `hw/build_hw.sh`       | `make hw`: recreate the project in `build/hw/proj`, synthesis, implementation, outputs to `build/hw/out`, then the BSP                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `hw/gui.tcl`, `hw/gui/`, `scripts/gui.sh` | `make gui`: Vivado GUI with the MBV toolbar commands (icons in `hw/gui/icons/`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `hw/gen_memmap.tcl`                       | `memory.ld` (LMB/DDR regions) and `cpu.mk` (`-march`/`-mabi`) from the block design                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `scripts/build_bsp.sh`, `sw/bsp.conf`     | BSP generation (see above) and its configuration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `sw/`                                     | `link.ld`, `Makefile`, `bsp.conf`, `apps/<program>/` (one directory per program: `demo`, `echo`, `boot`), `common/` (built into every program: `data_restore.c`, `mbv_image.h`), `drivers/xparameters.h` (link to the generated file)                                                                                                                                                                                                                                                                                                                                       |
+| `scripts/`                                | `program.sh` (JTAG), `flash.sh` (SPI flash), `run.sh` (xsdb load, `-s` = halted), `console.py`, `mkimage.py` (flash image for the bootloader), `hw_server.sh`, `build_bsp.sh`, `gui.sh`, shared `env.sh`                                                                                                                                                                                                                                                                                                                                                                    |
+| `.vscode/`                                | IntelliSense configuration, tasks, debug configurations (`launch.json`), editor settings                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `build/`                                  | Everything generated, safe to delete                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## Changing the hardware
 
@@ -198,6 +200,7 @@ peripheral or library needs no Makefile change. Add the IP, `make hw`, and
 > **Don't open `build/hw/proj/mb_v.xpr` in Vivado yourself. Always use `make gui`.**
 > The project in `build/` is generated from `hw/system_bd.tcl` and gets recreated by
 > `make hw`. If you open it directly:
+>
 > - **No MBV buttons:** the toolbar commands are only added by `make gui`.
 > - **Edits stay in the project:** nothing writes them to `hw/system_bd.tcl`, so they never
 >   reach git.
@@ -215,16 +218,17 @@ the two **MBV** buttons that `make gui` adds to Vivado's toolbar.
 
 ### The two toolbar buttons
 
-| Button | Name | Use it to | Takes |
-|---|---|---|---|
-| <img src="hw/gui/icons/export_bd.png" width="24"> | **MBV: Export BD** | Save your block-design changes into the repository | seconds |
-| <img src="hw/gui/icons/build.png" width="24"> | **MBV: Build HW + BSP** | Turn the block design into everything the software build needs | ~15 min (~1 min if nothing changed) |
+| Button                                            | Name                    | Use it to                                                      | Takes                               |
+| ------------------------------------------------- | ----------------------- | -------------------------------------------------------------- | ----------------------------------- |
+| <img src="hw/gui/icons/export_bd.png" width="24"> | **MBV: Export BD**      | Save your block-design changes into the repository             | seconds                             |
+| <img src="hw/gui/icons/build.png" width="24">     | **MBV: Build HW + BSP** | Turn the block design into everything the software build needs | ~15 min (~1 min if nothing changed) |
 
 The buttons sit on the main toolbar, with a green arrow and an orange hammer. Hover over one to
 see its name, and both are also under **Tools → Custom Commands**. Their messages appear in
 Vivado's **Tcl Console**, each starting with `mbv:`.
 
 **MBV: Export BD** (green arrow):
+
 1. Validates the block design, the same check as Vivado's *Validate Design*, and saves it.
 2. Writes it with `write_bd_tcl` and compares that with `hw/system_bd.tcl`. Comments are ignored.
 3. If they differ, replaces `hw/system_bd.tcl` and prints
@@ -235,6 +239,7 @@ Use it whenever you want to keep a change, even before building. Then review
 and commit `hw/system_bd.tcl` (`git diff hw/system_bd.tcl`). It doesn't build anything.
 
 **MBV: Build HW + BSP** (orange hammer):
+
 1. Does everything *Export BD* does, so a build always matches `hw/system_bd.tcl`.
 2. Runs synthesis, implementation and bitstream generation in the open project. If the
    design hasn't changed since the last build, it skips straight to step 3. If
@@ -278,6 +283,9 @@ one block Vivado doesn't cache, so it is always synthesized again.
 
 `make` never starts the 15-minute hardware build on its own. If something in `hw/` is
 newer than the bitstream, it builds the software anyway and prints a warning to run `make hw`.
+That check only looks at file dates. Git can give a file a new date without changing it, for example
+on a merge. `make hw` then finds the same fingerprint and does nothing, but it also records the check,
+so the warning is gone afterwards.
 Only one hardware build can run at a time. A second `make hw` stops immediately.
 
 `hw/system_bd.tcl` is the version that matters: it goes into git, and `make hw` rebuilds
@@ -300,12 +308,12 @@ The clock period comes from the DDR3 controller (MIG), which generates its own `
 
 From that clock the MIG makes everything else:
 
-| Clock | Frequency | Used by |
-|---|---|---|
-| `sys_clk_i` (pin E3) | 100 MHz | MIG input only |
-| `ui_clk` | 81.25 MHz | CPU, local memory, all AXI peripherals |
-| `ui_addn_clk_0` | 200 MHz | the MIG's own reference clock (`clk_ref_i`), and the Ethernet clock wizard |
-| `eth_ref_clk` (pin G18) | 25 MHz | the Ethernet PHY's reference clock: 200 MHz / 8, output by the FPGA |
+| Clock                   | Frequency | Used by                                                                    |
+| ----------------------- | --------- | -------------------------------------------------------------------------- |
+| `sys_clk_i` (pin E3)    | 100 MHz   | MIG input only                                                             |
+| `ui_clk`                | 81.25 MHz | CPU, local memory, all AXI peripherals                                     |
+| `ui_addn_clk_0`         | 200 MHz   | the MIG's own reference clock (`clk_ref_i`), and the Ethernet clock wizard |
+| `eth_ref_clk` (pin G18) | 25 MHz    | the Ethernet PHY's reference clock: 200 MHz / 8, output by the FPGA        |
 
 The Ethernet PHY on the Arty has no crystal of its own. The FPGA generates its 25 MHz
 clock and drives it out on pin G18. That's the **second clock pin in `hw/arty_a7_100.xdc`**
@@ -319,6 +327,7 @@ The UART's clock frequency is entered by hand in the block design
 updated whenever the system clock changes.
 
 **On another board**, check at least:
+
 1. **Board part:** `hw/project.tcl` (`part`, `board_part`) and the board files.
 2. **Clock pin:** the `sys_clk_i` pin and I/O standard in the xdc.
 3. **DDR controller:** the MIG's DDR preset, and that its input clock matches the board's oscillator.
@@ -336,11 +345,17 @@ Every directory in `sw/apps/` is a program, chosen with `APP=` (default `demo`).
 (`RUN_FROM`, `APP_CFLAGS`). To add a program, create `sw/apps/<name>/` with its `.c` files and
 build it with `make APP=<name>`.
 
-| Program | Runs from | Load with | What it does |
-|---|---|---|---|
-| `demo` | local memory | `make program` (or `make flash`) | Hardware summary, DDR test, Ethernet PHY and flash checks, RGB LED test, LEDs/buttons/switches, timer-interrupt RGB sequence, UART echo |
-| `echo` | DDR | `make run APP=echo` (debugger) or `make flash APP=echo` (bootloader) | lwIP TCP echo server on port 7 |
-| `boot` | local memory | used by `make flash` for DDR programs; `make program APP=boot` tests it without reflashing | Bootloader: copies a DDR program from flash to DDR at every start |
+A program can keep parts of its code in subfolders. The demo has its RGB LED code in
+`sw/apps/demo/modules/rgb/` (`rgb.c`, `rgb_seq.c`, `rgb.h`). The build compiles every `.c` file below
+the program's folder, and every folder that contains a `.h` file is on the include path, so
+`main.c` just writes `#include "rgb.h"`. Nothing needs registering: a new folder with `.c`/`.h` files
+is picked up by the next `make`.
+
+| Program | Runs from    | Load with                                                                                  | What it does                                                                                                                            |
+| ------- | ------------ | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `demo`  | local memory | `make program` (or `make flash`)                                                           | Hardware summary, DDR test, Ethernet PHY and flash checks, RGB LED test, LEDs/buttons/switches, timer-interrupt RGB sequence, UART echo |
+| `echo`  | DDR          | `make run APP=echo` (debugger) or `make flash APP=echo` (bootloader)                       | lwIP TCP echo server on port 7                                                                                                          |
+| `boot`  | local memory | used by `make flash` for DDR programs; `make program APP=boot` tests it without reflashing | Bootloader: copies a DDR program from flash to DDR at every start                                                                       |
 
 ### Where a program runs: block RAM or DDR
 
@@ -351,35 +366,41 @@ chosen memory. It's selected with the variable **`RUN_FROM`**, in this order:
 1. **Command line:** `make APP=demo RUN_FROM=DDR` overrides everything for that build.
 2. **The program's `sw/apps/<name>/app.mk`:** the permanent setting for one program. `sw/apps/echo/app.mk`
    contains
+
    ```make
    RUN_FROM := DDR
    ```
+
 3. **Default:** `LMB` (block RAM), when neither is set. `demo` and `boot` have no `app.mk` setting.
 
 `RUN_FROM` only takes `LMB` or `DDR` (they are the region names from `build/hw/out/memory.ld`).
 The linker script `sw/link.ld` places everything in that region (`REGION_ALIAS("CODE", …)`).
 
-| | `RUN_FROM=LMB` (default) | `RUN_FROM=DDR` |
-|---|---|---|
-| Space | 128 KB for code + data + heap, minus the stack (8 KB, `STACK_SIZE`) | 256 MB |
-| Speed | single-cycle memory, no cache needed | through the 16 KB caches |
-| Build output | `app.elf` + `download.bit` (the program is part of the bitstream) | `app.elf` + `app.img` (flash image) |
-| Try it | `make program APP=<name>` | `make run APP=<name>` (debugger, until RESET) |
-| Keep it | `make flash APP=<name>`: starts at power-up | `make flash APP=<name>`: with the bootloader, see below |
-| After RESET | restarts (`sw/common/data_restore.c`) | restarts via the bootloader if flashed; after `make run`, nothing runs |
-| Good for | small programs, things that must start instantly | big programs, lwIP |
+|              | `RUN_FROM=LMB` (default)                                            | `RUN_FROM=DDR`                                                         |
+| ------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Space        | 128 KB for code + data + heap, minus the stack (8 KB, `STACK_SIZE`) | 256 MB                                                                 |
+| Speed        | single-cycle memory, no cache needed                                | through the 16 KB caches                                               |
+| Build output | `app.elf` + `download.bit` (the program is part of the bitstream)   | `app.elf` + `app.img` (flash image)                                    |
+| Try it       | `make program APP=<name>`                                           | `make run APP=<name>` (debugger, until RESET)                          |
+| Keep it      | `make flash APP=<name>`: starts at power-up                         | `make flash APP=<name>`: with the bootloader, see below                |
+| After RESET  | restarts (`sw/common/data_restore.c`)                               | restarts via the bootloader if flashed; after `make run`, nothing runs |
+| Good for     | small programs, things that must start instantly                    | big programs, lwIP                                                     |
 
 **How do I know it fits?** Every link prints the memory use, e.g.
-```
+
+```txt
 Memory region         Used Size  Region Size  %age Used
              LMB:       46244 B       128 KB     35.28%
 ```
+
 If a program grows too big for the local memory, the link fails with
 `program does not fit in the CODE region`. You can then either switch the program to `RUN_FROM := DDR`, or
 keep the code in block RAM and move only big buffers into DDR:
+
 ```c
 static uint8_t frame[1 << 20] __attribute__((section(".ddr")));   /* 1 MB in DDR, not zeroed */
 ```
+
 The demo does that for its DDR test. Such buffers are not cleared and not loaded at startup.
 
 **Making a new program run from DDR:** create `sw/apps/<name>/app.mk` with `RUN_FROM := DDR`. From
@@ -390,37 +411,42 @@ tasks and debug configurations follow automatically.
 
 All programs use the same linker script, `sw/link.ld`. It pulls in two small generated files:
 
-| File | Written by | Contains |
-|---|---|---|
-| `build/hw/out/memory.ld` | `hw/gen_memmap.tcl`, from the block design | the regions `LMB` (0x0, 128 KB) and `DDR` (0x80000000, 256 MB) |
-| `build/sw/<APP>/region.ld` | `sw/Makefile`, at every link | `REGION_ALIAS("CODE", LMB or DDR)` from `RUN_FROM`, plus `_STACK_SIZE` / `_MIN_HEAP` if set |
+| File                       | Written by                                 | Contains                                                                                    |
+| -------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `build/hw/out/memory.ld`   | `hw/gen_memmap.tcl`, from the block design | the regions `LMB` (0x0, 128 KB) and `DDR` (0x80000000, 256 MB)                              |
+| `build/sw/<APP>/region.ld` | `sw/Makefile`, at every link               | `REGION_ALIAS("CODE", LMB or DDR)` from `RUN_FROM`, plus `_STACK_SIZE` / `_MIN_HEAP` if set |
 
 Everything goes into the `CODE` region, in this order:
-```
+
+```txt
 ORIGIN(CODE)                                                               ORIGIN+LENGTH
 [_boot][.text][.rodata][.data ...][.bss/.sbss][.noinit][ heap ->     <- stack ][16 B]
                                                        ^_heap_start  ^_heap_end = _stack_end
                                                                             __stack = end - 16
 ```
+
 (`.ddr` buffers sit in DDR. For a DDR program, the heap starts after them.)
 
 **Setting the stack and heap sizes:** don't edit `sw/link.ld`, use two make variables (values in bytes,
 decimal or hex):
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `STACK_SIZE` | `0x2000` (8 KB) | size of the stack at the top of the region |
-| `HEAP_MIN` | `0x1000` (4 KB) | the link fails unless at least this much is left for the heap |
+| Variable     | Default         | Meaning                                                       |
+| ------------ | --------------- | ------------------------------------------------------------- |
+| `STACK_SIZE` | `0x2000` (8 KB) | size of the stack at the top of the region                    |
+| `HEAP_MIN`   | `0x1000` (4 KB) | the link fails unless at least this much is left for the heap |
 
 Like `RUN_FROM`, they can be set for one build or permanently for one program:
+
 ```sh
 make APP=demo STACK_SIZE=0x4000             # one build with a 16 KB stack
 ```
+
 ```make
 # sw/apps/<name>/app.mk
 STACK_SIZE := 0x4000
 HEAP_MIN   := 0x10000
 ```
+
 A change relinks the program (no recompile). The map file shows the result: look for `_stack_end`,
 `_heap_start` and `_heap_end` in `build/sw/<APP>/app.map`.
 
@@ -452,7 +478,8 @@ report of the network configuration (`netinfo.c`) and a fix for lost Ethernet re
 3. `make console` shows the startup report. The board asks for an address by DHCP and, without a DHCP
    server, falls back to **192.168.1.10** (netmask 255.255.255.0, gateway 192.168.1.1)
    after about 12 seconds. The values below are examples:
-   ```
+
+   ```txt
    Ethernet interface
      controller  : AXI Ethernet Lite at 0x40e00000, 10/100 Mbit/s MII
      MAC address : 00:0a:35:00:01:02
@@ -469,6 +496,7 @@ report of the network configuration (`netinfo.c`) and a fix for lost Ethernet re
 
    Echo server ready on TCP port 7. From your PC:  nc 192.168.0.57 7
    ```
+
 4. From your PC: `nc <board-ip> 7` (or `telnet <board-ip> 7`). Everything you type comes
    back.
 
@@ -492,6 +520,7 @@ lwIP's options, IPv6 included, are BSP settings, not `#define`s in the code. The
 The parameter names are in `build/bsp/domain/bsp.yaml`.
 
 Mind the limits before switching it on:
+
 - **IPv6-only echo server:** with IPv6 the template's `main.c` takes an IPv6-only path. There's no IPv4
   address and no DHCP, only a link-local address derived from the MAC (`fe80::20a:35ff:fe00:102`).
   The network report (`netinfo.c`) covers IPv4 only.
@@ -509,23 +538,26 @@ Mind the limits before switching it on:
 Programs too big for the local memory (such as `echo`) live in DDR, which is empty after power-up.
 `make flash APP=<name>` therefore writes two things to the 16 MB flash:
 
-| Flash address | Contents |
-|---|---|
-| `0x000000` | Bitstream with the bootloader (`sw/apps/boot`, ~18 KB) in the local memory |
-| `0x400000` | The program image `build/sw/<name>/app.img`, made by `scripts/mkimage.py` from `app.elf` |
+| Flash address | Contents                                                                                 |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| `0x000000`    | Bitstream with the bootloader (`sw/apps/boot`, ~18 KB) in the local memory               |
+| `0x400000`    | The program image `build/sw/<name>/app.img`, made by `scripts/mkimage.py` from `app.elf` |
 
 At every start (power-up, PROG, RESET) the bootloader:
+
 1. reads the image header and checks it (magic, version, CRC)
 2. copies the program into DDR and checks the CRC of what landed in DDR
 3. writes the caches back and jumps to the program
 
 The console shows each step:
-```
+
+```txt
 MicroBlaze V bootloader: image at flash 0x00400000
 boot: loading 'echo', 78862 bytes in 1 segment(s) ...
 boot:   0x80000000  78862 bytes
 boot: CRC ok, starting 'echo' at 0x80000000
 ```
+
 followed by the program's own output. With no or a broken image it prints why and stops. Only
 the program's code and initialised data go into the image (here about 77 KB). Its buffers and
 other zeroed memory are cleared by the program itself. The image format is in
@@ -549,7 +581,7 @@ other zeroed memory are cleared by the program itself. The image format is in
   flash's JEDEC ID. The ID line also names the `FLASH_PART` value `make flash` needs for this board.
 - **RGB LEDs:** the demo checks the GPIO register (write, read back) and then lights LD0..LD3 red,
   green and blue in turn, all white, and a short brightness ramp. Watch the LEDs: the console only
-  shows the readback result. The code is in `sw/apps/demo/rgb.c`.
+  shows the readback result. The code is in `sw/apps/demo/modules/rgb/rgb.c`.
   Each LED has three bits in `axi_gpio_2` (bit 3n blue, 3n+1 green, 3n+2 red for LD*n*). The
   brightness comes from software PWM (64 levels, about 1 kHz), which runs only while
   `rgb_pwm_run()` is called. The demo uses it instead of `usleep()` in its main loop. The demo
@@ -557,7 +589,7 @@ other zeroed memory are cleared by the program itself. The image format is in
 - **RGB sequence (timer interrupt):** after the test, the second AXI Timer (`axi_timer_1`, interrupt 5)
   interrupts every 2 s. Each interrupt starts one turn of the colour wheel on LD0..LD3 (1 s, the four
   LEDs 90° apart), then the LEDs stay off until the next interrupt. The timer's own count gives the
-  position within the turn. The code is in `sw/apps/demo/rgb_seq.c`; the period and the length of
+  position within the turn. The code is in `sw/apps/demo/modules/rgb/rgb_seq.c`; the period and the length of
   the turn are `RGB_SEQ_PERIOD_MS` and `RGB_SEQ_ROT_MS` in `rgb.h`. The interrupt is set up with
   AMD's `XSetupInterruptSystem()` and the XTmrCtr driver (`XTmrCtr_SetHandler`), which makes it a
   short example of a driver interrupt in the demo. If no colours appear at all, the interrupt

@@ -8,7 +8,7 @@ README.md is the user-facing guide. This file covers how things work and what to
 
 ## Commands
 
-```
+```sh
 make hw          # batch hardware build (~15 min, ~1 min if fingerprint matches), then BSP; never implicit
 REBUILD=1 make hw # full build even if the fingerprint matches
 make             # app: compile + link into build/sw/<APP>/; LMB apps -> download.bit (updatemem), DDR apps -> app.img
@@ -35,8 +35,10 @@ make STACK_SIZE=0x4000 HEAP_MIN=0x10000   # stack size / minimum heap (default 0
    config tables, adds the standalone runtime and xiltimer) → `empyro config_bsp -al/-st` (libs/options from
    `sw/bsp.conf`; **lwip220 is added automatically if `pl.dtsi` contains an Ethernet MAC**) →
    `empyro build_bsp` → `build/bsp/domain/{include,lib}`. Takes about 20 s.
-3. **App:** `sw/Makefile` compiles `sw/apps/$(APP)/*.c` plus `sw/common/*.c` (+ `app.mk`: RUN_FROM, APP_CFLAGS) into
-   `build/sw/$(APP)/`, links **every** `build/bsp/domain/lib/lib*.a` and uses `-specs=$(BSP)/Xilinx.spec`.
+3. **App:** `sw/Makefile` compiles every `.c` under `sw/apps/$(APP)/` (subdirectories too, `find`) plus `sw/common/*.c`
+   (+ `app.mk`: RUN_FROM, APP_CFLAGS) into `build/sw/$(APP)/`. Objects mirror the tree (`obj/modules/rgb/rgb.o`).
+   `APP_INCS` = `-I` for the app directory plus every subdirectory with a `.h`, so `#include "rgb.h"` works from
+   anywhere in the app. Links **every** `build/bsp/domain/lib/lib*.a` and uses `-specs=$(BSP)/Xilinx.spec`.
    LMB apps: `updatemem` → `build/sw/$(APP)/download.bit`. DDR apps: `scripts/mkimage.py` → `build/sw/$(APP)/app.img`.
    It also writes `build/sw/compile_commands.json` (all apps) for VS Code.
 
@@ -53,6 +55,9 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
   comment-stripped `hw/system_bd.tcl` and xdc. After a successful build it goes to `build/hw/out/source.fingerprint`
   (deleted before a full build starts, so an interrupted build never matches). `build_hw.tcl` and `mbv::build`
   skip implementation when all outputs exist and the fingerprint matches. `REBUILD=1` overrides this.
+  On such a skip, `mbv::confirm_outputs` touches `source.fingerprint`. `hw-check` (top Makefile) compares `HW_SRC`
+  mtimes against that file (fallback `system.bit`), so a file git rewrote with the same content (seen after merging
+  PR #1: "system_bd.tcl is newer than the bitstream" while `make hw` had nothing to do) stops warning after one `make hw`.
   Project settings outside the BD and xdc (run strategies etc.) are **not** in the fingerprint. Use `REBUILD=1` after changing them.
 - **IP cache:** `mbv::setup_project` sets `IP_OUTPUT_REPO build/hw/ipcache` and
   `IP_CACHE_PERMISSIONS {read write}` (on project creation and in `gui.tcl` on open).
@@ -73,19 +78,19 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
   cover DDR. The debug module is enabled.
 - **Address map:**
 
-  | Block | Address | Notes |
-  |---|---|---|
-  | LMB | `0x0000_0000` | 128 KB, 32 RAMB36 |
-  | DDR3 | `0x8000_0000` | 256 MB |
-  | UART Lite | `0x4060_0000` | 115200 8N1, IRQ 0 |
-  | AXI GPIO 0 | `0x4000_0000` | 4 LEDs, `led_4bits` |
-  | AXI GPIO 1 | `0x4001_0000` | ch1 `push_buttons_4bits`, ch2 `dip_switches_4bits`, IRQ 1 |
-  | AXI GPIO 2 | `0x4002_0000` | 12 outputs, `rgb_led` (LD0..LD3; bit 3n blue, 3n+1 green, 3n+2 red), no IRQ, SmartConnect M07 |
-  | AXI Ethernet Lite | `0x40E0_0000` | `eth_mii` + `eth_mdio_mdc` (DP83848 PHY, 10/100 MII), IRQ 2 |
-  | AXI Quad SPI | `0x44A0_0000` | `qspi_flash`, quad mode, SCK = `ui_clk`/2 = 40.6 MHz, no STARTUPE2 (SCK on pin L16), IRQ 3 |
-  | AXI Timer 0 | `0x41C0_0000` | tick for lwIP / xiltimer (`XILTIMER_tick_timer:axi_timer_0`), IRQ 4 |
-  | AXI Timer 1 | `0x41C1_0000` | demo's RGB sequence (`rgb_seq.c`), IRQ 5, SmartConnect M08 |
-  | AXI INTC | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 6 inputs through the concat |
+  | Block             | Address       | Notes                                                                                         |
+  | ----------------- | ------------- | --------------------------------------------------------------------------------------------- |
+  | LMB               | `0x0000_0000` | 128 KB, 32 RAMB36                                                                             |
+  | DDR3              | `0x8000_0000` | 256 MB                                                                                        |
+  | UART Lite         | `0x4060_0000` | 115200 8N1, IRQ 0                                                                             |
+  | AXI GPIO 0        | `0x4000_0000` | 4 LEDs, `led_4bits`                                                                           |
+  | AXI GPIO 1        | `0x4001_0000` | ch1 `push_buttons_4bits`, ch2 `dip_switches_4bits`, IRQ 1                                     |
+  | AXI GPIO 2        | `0x4002_0000` | 12 outputs, `rgb_led` (LD0..LD3; bit 3n blue, 3n+1 green, 3n+2 red), no IRQ, SmartConnect M07 |
+  | AXI Ethernet Lite | `0x40E0_0000` | `eth_mii` + `eth_mdio_mdc` (DP83848 PHY, 10/100 MII), IRQ 2                                   |
+  | AXI Quad SPI      | `0x44A0_0000` | `qspi_flash`, quad mode, SCK = `ui_clk`/2 = 40.6 MHz, no STARTUPE2 (SCK on pin L16), IRQ 3    |
+  | AXI Timer 0       | `0x41C0_0000` | tick for lwIP / xiltimer (`XILTIMER_tick_timer:axi_timer_0`), IRQ 4                           |
+  | AXI Timer 1       | `0x41C1_0000` | demo's RGB sequence (`modules/rgb/rgb_seq.c`), IRQ 5, SmartConnect M08                        |
+  | AXI INTC          | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 6 inputs through the concat                         |
 
 - **Resources:** 46/135 RAMB36, about 20 % of LUTs (12,541 with the second timer). Timing met with about +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO, +1.259 with axi_timer_1).
 - **Configuration settings:** the xdc adds CFGBVS/CONFIG_VOLTAGE plus `SPI_BUSWIDTH 4`,
@@ -93,7 +98,7 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
 
 ## Clocking (important when changing anything clock-related or moving to another board)
 
-```
+```txt
 pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-ended, input 99.997 MHz)
                                                     │  MMCM: DDR3 at 3077 ps (325 MHz), PHY ratio 4:1
                                                     ├─ ui_clk        81.25 MHz ─> CPU, LMB, all AXI, UART, GPIO, INTC
@@ -131,6 +136,7 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   baud rate is wrong. Update it with every clock change.
 
 **Checklist for moving to another board:**
+
 1. **Board files:** board part in `hw/project.tcl` (`board_part`, `part`), plus the board files in `BOARD_REPO`.
 2. **Clock pin:** in the xdc, the `sys_clk_i` pin and IO standard of the new board's oscillator.
 3. **MIG:** the new board's DDR preset name (`BOARD_MIG_PARAM`), and that its input clock period matches the oscillator.
@@ -203,7 +209,7 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   plus `-Werror` unless `WERROR=0`. `EXTRA_WARN` adds flags. demo, boot, `common/` and echo's own files are clean.
   AMD's echo template files (`main.c`, `echo.c`, `platform.c`) are not: `app.mk` lists them in `TEMPLATE_SRCS` and
   `TEMPLATE_CFLAGS` adds `-Wno-*` for them only (K&R `()` prototypes, `#if __MICROBLAZE__`, string literals as
-  `char *`, a second `dhcp_start` declaration). `print-app-cflags SRC=<file>` gives compdb the same per-file flags.
+  `char *`, a second `dhcp_start` declaration). `print-app-cflags SRC=<file>` gives compdb the same per-file flags plus `APP_INCS`.
   Objects depend on `build/sw/<APP>/cflags.txt` (compiler + all flags, rewritten only on change), so changing
   `WERROR`, `EXTRA_WARN`, `OPT`, `PRINTF_FLOAT` or `app.mk` recompiles everything. A plain `make` with nothing
   changed shows no gcc lines, so no `-Wall` in the output either.
@@ -224,13 +230,13 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
 - **Demo:** `sw/apps/demo/main.c` prints the configuration, runs a 1 MB DDR test, checks the Ethernet PHY over MDIO (scans all
   32 addresses, ID and link via BMSR/PHYSTS) and the QSPI flash (JEDEC ID, so the right `FLASH_PART` is known), shows a light chaser on
   the LEDs (speed set by the switches, buttons override), polls the buttons (the only interrupt is the RGB timer's) and echoes the UART.
-- **RGB LEDs (`sw/apps/demo/rgb.c`):** software PWM on `axi_gpio_2`, 64 levels x 16 µs (1.024 ms period), timed with
+- **RGB LEDs (`sw/apps/demo/modules/rgb/rgb.c`, with `rgb.h` and `rgb_seq.c` in the same folder):** software PWM on `axi_gpio_2`, 64 levels x 16 µs (1.024 ms period), timed with
   the `cycle` CSR. It runs only inside `rgb_pwm_run(us)`, which busy-waits and switches the LEDs off when it returns.
   The demo's main loop calls `rgb_pwm_run(5000)` where it used to `usleep(5000)`, after `rgb_seq_update()` (below).
   `rgb_selftest()` writes and reads back 0xA5A/0x5A5/0xFFF/0 (an all-output axi_gpio reads back its data register),
   then shows red, green and blue on each LED, all white and a brightness ramp. Only the readback is
   checked automatically; the colours have to be checked by eye. `RGB_BRIGHT` = 16/64: full duty is glaring.
-- **RGB sequence (`sw/apps/demo/rgb_seq.c`, axi_timer_1):** counter 0 in generate mode, down count, auto reload,
+- **RGB sequence (`sw/apps/demo/modules/rgb/rgb_seq.c`, axi_timer_1):** counter 0 in generate mode, down count, auto reload,
   TLR = 2 s × `XPAR_XTMRCTR_1_CLOCK_FREQUENCY` − 2 (period = TLR + 2 cycles). The ISR (`XTmrCtr_SetHandler`
   callback, set up with `XSetupInterruptSystem`, normal INTC mode) only increments a counter. The main loop calls
   `rgb_seq_update()` before every `rgb_pwm_run(5000)`: a new count starts one 1 s colour-wheel turn
@@ -291,12 +297,12 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   `mbv::create_project` broke `create_project`. Use `::cmd` or distinct names.
 - **Watching the GUI log:** `build/hw/gui/vivado.log` also contains Vivado's echo of sourced scripts (`## error "..."`)
   and the copied logs of the synth/impl child runs (their `Exiting Vivado` lines). To wait for a GUI build, match only
-  `^mbv: hardware and BSP done` or `^ERROR: `.
+  `^mbv: hardware and BSP done` or `^ERROR:`.
 - **Concurrent builds:** two hardware builds at once break each other. Vivado rotates `build_hw.log` to
   `*.backup.log` when a second session starts, and the second `new_project` deletes `build/hw/proj` under
   the first. That's why `build_hw.sh` holds `flock build/hw/.build_hw.lock` and reads its result from
   `console.log`. Top-level `make` never starts `make hw` implicitly. `hw-check` only warns when
-  `HW_SRC` is newer than `system.bit` (the VS Code build task used to trigger a 15-min build silently).
+  `HW_SRC` is newer than `source.fingerprint` (see Fingerprint; the VS Code build task used to trigger a 15-min build silently).
 - **No display in VS Code:** VS Code Remote-SSH terminals have no `DISPLAY`. Vivado then fails "Display test failed",
   runs the `-source` script anyway and exits. `scripts/gui.sh` tests `DISPLAY` with `xset q` and otherwise borrows a
   working `DISPLAY` from another process of the same user (`/proc/*/environ`), e.g. an `ssh -X` session. Vivado needs a
@@ -349,8 +355,10 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   - **Verified on the board with command-line gdb:**
     - demo: tbreak main, next, a breakpoint in `eth_check`, bt.
     - echo in DDR: main, then `start_application` after DHCP. The network was fine afterwards.
-  - **"Debug program of open file":** `${fileDirnameBasename}` gives `sw/apps/<name>` → APP, for both the program path and
-    the `debug-load` task. With a file outside `sw/apps/`, make stops with "no sources … available apps".
+  - **"Debug program of open file":** the task runs `make debug-load FILE=${relativeFile}`. The top Makefile takes APP
+    from the third path component (`sw/apps/<name>/…`, any depth, so `modules/rgb/rgb.c` → demo). `debug-load` links
+    `build/sw/debug-app` → `<APP>`, and launch.json loads `build/sw/debug-app/app.elf`. (`${fileDirnameBasename}`, used
+    before, gave `rgb` for files in subfolders.) With a file outside `sw/apps/`, make stops with "no sources … available apps".
   - **F5 uses the selected configuration:** it runs the configuration selected in the Run and Debug dropdown, which
     is easy to forget when switching between programs ("Debug demo" starts although echo was wanted).
   - **The VS Code UI path works on the board:** F5 with Debug demo/echo and "Debug program of open file". Stopping a

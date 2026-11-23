@@ -35,6 +35,7 @@ if {[file exists $xpr] && $force != 1} {
 if {![mbv::rebuild_requested] && [mbv::outputs_match [mbv::fingerprint]]} {
     puts "mbv: build/hw/out was already built from this design (fingerprint) - nothing to do"
     puts "mbv: (REBUILD=1 forces a full build)"
+    mbv::confirm_outputs
     return
 }
 
