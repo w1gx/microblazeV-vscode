@@ -5,6 +5,7 @@ AMD's *lwIP Echo Server* application template (`main.c`, `echo.c`, `platform.c`,
 (see the file headers).
 
 What this project adds:
+
 - **`platform_config.h`:** replaces the template's CMake-generated `platform_config.h.in`.
 - **`netinfo.c` / `netinfo.h`:** report the Ethernet configuration on the console.
 - **`emaclite_rx.c` / `emaclite_rx.h`:** work around lost receive interrupts. AMD's Ethernet Lite
@@ -17,6 +18,7 @@ What this project adds:
   `xil_printf` without including its header.
 
 Behaviour:
+
 - Gets an address by DHCP and falls back to 192.168.1.10/24 (gateway 192.168.1.1)
   after about 12 s without a DHCP server.
 - MAC address 00:0a:35:00:01:02 (`main.c`).

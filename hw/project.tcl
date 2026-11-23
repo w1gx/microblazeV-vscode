@@ -125,6 +125,14 @@ proc mbv::outputs_match {fp} {
     return [expr {$old eq $fp}]
 }
 
+# The outputs were found up to date: touch the fingerprint file, so the Makefile's
+# timestamp check (hw-check) stops warning about sources that git or an editor
+# rewrote without changing them.
+proc mbv::confirm_outputs {} {
+    variable fp_file
+    file mtime $fp_file [clock seconds]
+}
+
 proc mbv::rebuild_requested {} {
     return [expr {[info exists ::env(REBUILD)] && $::env(REBUILD) eq "1"}]
 }
@@ -147,6 +155,7 @@ proc mbv::build {{jobs 4}} {
     } elseif {![mbv::rebuild_requested] && [mbv::outputs_match $fp]} {
         puts "mbv: build/hw/out was already built from this design (fingerprint) - skipping implementation"
         puts "mbv: (REBUILD=1 forces a full build)"
+        mbv::confirm_outputs
         return
     } else {
         file delete -force $fp_file

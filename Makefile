@@ -34,8 +34,12 @@ hw:
 $(HW_OUT)/system.bit:
 	@echo "No hardware build yet - run 'make hw' first (~15 min)."; exit 1
 
+# Compares against source.fingerprint (written by a build, touched when `make hw` finds
+# the outputs up to date), so a file git rewrote with the same content stops warning
+# after one `make hw`. Older builds without the file fall back to system.bit.
+HW_STAMP = $(firstword $(wildcard $(HW_OUT)/source.fingerprint) $(HW_OUT)/system.bit)
 hw-check: $(HW_OUT)/system.bit
-	@for f in $(HW_SRC); do [ $$f -nt $(HW_OUT)/system.bit ] && \
+	@for f in $(HW_SRC); do [ $$f -nt $(HW_STAMP) ] && \
 	    echo "WARNING: $$f is newer than the bitstream - run 'make hw' (or MBV: Build HW + BSP)"; done; true
 
 gui:
