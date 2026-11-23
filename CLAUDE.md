@@ -35,8 +35,10 @@ make STACK_SIZE=0x4000 HEAP_MIN=0x10000   # stack size / minimum heap (default 0
    config tables, adds the standalone runtime and xiltimer) → `empyro config_bsp -al/-st` (libs/options from
    `sw/bsp.conf`; **lwip220 is added automatically if `pl.dtsi` contains an Ethernet MAC**) →
    `empyro build_bsp` → `build/bsp/domain/{include,lib}`. Takes about 20 s.
-3. **App:** `sw/Makefile` compiles `sw/apps/$(APP)/*.c` plus `sw/common/*.c` (+ `app.mk`: RUN_FROM, APP_CFLAGS) into
-   `build/sw/$(APP)/`, links **every** `build/bsp/domain/lib/lib*.a` and uses `-specs=$(BSP)/Xilinx.spec`.
+3. **App:** `sw/Makefile` compiles every `.c` under `sw/apps/$(APP)/` (subdirectories too, `find`) plus `sw/common/*.c`
+   (+ `app.mk`: RUN_FROM, APP_CFLAGS) into `build/sw/$(APP)/`. Objects mirror the tree (`obj/modules/rgb/rgb.o`).
+   `APP_INCS` = `-I` for the app directory plus every subdirectory with a `.h`, so `#include "rgb.h"` works from
+   anywhere in the app. Links **every** `build/bsp/domain/lib/lib*.a` and uses `-specs=$(BSP)/Xilinx.spec`.
    LMB apps: `updatemem` → `build/sw/$(APP)/download.bit`. DDR apps: `scripts/mkimage.py` → `build/sw/$(APP)/app.img`.
    It also writes `build/sw/compile_commands.json` (all apps) for VS Code.
 
@@ -84,7 +86,7 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
   | AXI Ethernet Lite | `0x40E0_0000` | `eth_mii` + `eth_mdio_mdc` (DP83848 PHY, 10/100 MII), IRQ 2 |
   | AXI Quad SPI | `0x44A0_0000` | `qspi_flash`, quad mode, SCK = `ui_clk`/2 = 40.6 MHz, no STARTUPE2 (SCK on pin L16), IRQ 3 |
   | AXI Timer 0 | `0x41C0_0000` | tick for lwIP / xiltimer (`XILTIMER_tick_timer:axi_timer_0`), IRQ 4 |
-  | AXI Timer 1 | `0x41C1_0000` | demo's RGB sequence (`rgb_seq.c`), IRQ 5, SmartConnect M08 |
+  | AXI Timer 1 | `0x41C1_0000` | demo's RGB sequence (`modules/rgb/rgb_seq.c`), IRQ 5, SmartConnect M08 |
   | AXI INTC | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 6 inputs through the concat |
 
 - **Resources:** 46/135 RAMB36, about 20 % of LUTs (12,541 with the second timer). Timing met with about +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO, +1.259 with axi_timer_1).
@@ -203,7 +205,7 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   plus `-Werror` unless `WERROR=0`. `EXTRA_WARN` adds flags. demo, boot, `common/` and echo's own files are clean.
   AMD's echo template files (`main.c`, `echo.c`, `platform.c`) are not: `app.mk` lists them in `TEMPLATE_SRCS` and
   `TEMPLATE_CFLAGS` adds `-Wno-*` for them only (K&R `()` prototypes, `#if __MICROBLAZE__`, string literals as
-  `char *`, a second `dhcp_start` declaration). `print-app-cflags SRC=<file>` gives compdb the same per-file flags.
+  `char *`, a second `dhcp_start` declaration). `print-app-cflags SRC=<file>` gives compdb the same per-file flags plus `APP_INCS`.
   Objects depend on `build/sw/<APP>/cflags.txt` (compiler + all flags, rewritten only on change), so changing
   `WERROR`, `EXTRA_WARN`, `OPT`, `PRINTF_FLOAT` or `app.mk` recompiles everything. A plain `make` with nothing
   changed shows no gcc lines, so no `-Wall` in the output either.
@@ -224,13 +226,13 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
 - **Demo:** `sw/apps/demo/main.c` prints the configuration, runs a 1 MB DDR test, checks the Ethernet PHY over MDIO (scans all
   32 addresses, ID and link via BMSR/PHYSTS) and the QSPI flash (JEDEC ID, so the right `FLASH_PART` is known), shows a light chaser on
   the LEDs (speed set by the switches, buttons override), polls the buttons (the only interrupt is the RGB timer's) and echoes the UART.
-- **RGB LEDs (`sw/apps/demo/rgb.c`):** software PWM on `axi_gpio_2`, 64 levels x 16 µs (1.024 ms period), timed with
+- **RGB LEDs (`sw/apps/demo/modules/rgb/rgb.c`, with `rgb.h` and `rgb_seq.c` in the same folder):** software PWM on `axi_gpio_2`, 64 levels x 16 µs (1.024 ms period), timed with
   the `cycle` CSR. It runs only inside `rgb_pwm_run(us)`, which busy-waits and switches the LEDs off when it returns.
   The demo's main loop calls `rgb_pwm_run(5000)` where it used to `usleep(5000)`, after `rgb_seq_update()` (below).
   `rgb_selftest()` writes and reads back 0xA5A/0x5A5/0xFFF/0 (an all-output axi_gpio reads back its data register),
   then shows red, green and blue on each LED, all white and a brightness ramp. Only the readback is
   checked automatically; the colours have to be checked by eye. `RGB_BRIGHT` = 16/64: full duty is glaring.
-- **RGB sequence (`sw/apps/demo/rgb_seq.c`, axi_timer_1):** counter 0 in generate mode, down count, auto reload,
+- **RGB sequence (`sw/apps/demo/modules/rgb/rgb_seq.c`, axi_timer_1):** counter 0 in generate mode, down count, auto reload,
   TLR = 2 s × `XPAR_XTMRCTR_1_CLOCK_FREQUENCY` − 2 (period = TLR + 2 cycles). The ISR (`XTmrCtr_SetHandler`
   callback, set up with `XSetupInterruptSystem`, normal INTC mode) only increments a counter. The main loop calls
   `rgb_seq_update()` before every `rgb_pwm_run(5000)`: a new count starts one 1 s colour-wheel turn
@@ -349,8 +351,10 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   - **Verified on the board with command-line gdb:**
     - demo: tbreak main, next, a breakpoint in `eth_check`, bt.
     - echo in DDR: main, then `start_application` after DHCP. The network was fine afterwards.
-  - **"Debug program of open file":** `${fileDirnameBasename}` gives `sw/apps/<name>` → APP, for both the program path and
-    the `debug-load` task. With a file outside `sw/apps/`, make stops with "no sources … available apps".
+  - **"Debug program of open file":** the task runs `make debug-load FILE=${relativeFile}`. The top Makefile takes APP
+    from the third path component (`sw/apps/<name>/…`, any depth, so `modules/rgb/rgb.c` → demo). `debug-load` links
+    `build/sw/debug-app` → `<APP>`, and launch.json loads `build/sw/debug-app/app.elf`. (`${fileDirnameBasename}`, used
+    before, gave `rgb` for files in subfolders.) With a file outside `sw/apps/`, make stops with "no sources … available apps".
   - **F5 uses the selected configuration:** it runs the configuration selected in the Run and Debug dropdown, which
     is easy to forget when switching between programs ("Debug demo" starts although echo was wanted).
   - **The VS Code UI path works on the board:** F5 with Debug demo/echo and "Debug program of open file". Stopping a

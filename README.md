@@ -39,7 +39,7 @@ file in `sw/apps/` (every program). `.vscode/c_cpp_properties.json` points the C
 IntelliSense then uses the same compiler, `-march`/`-mabi`, defines and include paths as
 the real build, so it finds:
 
-- your own headers in `sw/apps/<program>/`
+- your own headers in `sw/apps/<program>/` and its subfolders (e.g. `modules/rgb/`)
 - the BSP: `xparameters.h`, every driver header (`xgpio.h`, `xuartlite_l.h`, ...),
   `xil_printf.h`, `sleep.h`, ...
 - the RISC-V C library (`stdio.h`, `stdint.h`, ...)
@@ -108,7 +108,7 @@ The **Run and Debug** view (Ctrl+Shift+D) has five configurations. They use the 
 
 | Configuration | What happens |
 |---|---|
-| **Debug program of open file** | Like *Debug demo/echo*, for the program whose source file is open in the active editor (`sw/apps/echo/…` → echo). |
+| **Debug program of open file** | Like *Debug demo/echo*, for the program whose source file is open in the active editor (`sw/apps/echo/…` → echo, `sw/apps/demo/modules/rgb/rgb.c` → demo). |
 | **Debug demo** / **Debug echo** | Builds the program, configures the FPGA, loads the program and stops at `main()`. Then step, set breakpoints, watch variables as usual. |
 | **Attach demo** / **Attach echo** | Connects to whatever is running right now (e.g. started from flash or with `make run`) and stops where it is. Nothing is reloaded. Pick the configuration that matches the running program. |
 
@@ -336,6 +336,12 @@ Every directory in `sw/apps/` is a program, chosen with `APP=` (default `demo`).
 (`RUN_FROM`, `APP_CFLAGS`). To add a program, create `sw/apps/<name>/` with its `.c` files and
 build it with `make APP=<name>`.
 
+A program can keep parts of its code in subfolders. The demo has its RGB LED code in
+`sw/apps/demo/modules/rgb/` (`rgb.c`, `rgb_seq.c`, `rgb.h`). The build compiles every `.c` file below
+the program's folder, and every folder that contains a `.h` file is on the include path, so
+`main.c` just writes `#include "rgb.h"`. Nothing needs registering: a new folder with `.c`/`.h` files
+is picked up by the next `make`.
+
 | Program | Runs from | Load with | What it does |
 |---|---|---|---|
 | `demo` | local memory | `make program` (or `make flash`) | Hardware summary, DDR test, Ethernet PHY and flash checks, RGB LED test, LEDs/buttons/switches, timer-interrupt RGB sequence, UART echo |
@@ -549,7 +555,7 @@ other zeroed memory are cleared by the program itself. The image format is in
   flash's JEDEC ID. The ID line also names the `FLASH_PART` value `make flash` needs for this board.
 - **RGB LEDs:** the demo checks the GPIO register (write, read back) and then lights LD0..LD3 red,
   green and blue in turn, all white, and a short brightness ramp. Watch the LEDs: the console only
-  shows the readback result. The code is in `sw/apps/demo/rgb.c`.
+  shows the readback result. The code is in `sw/apps/demo/modules/rgb/rgb.c`.
   Each LED has three bits in `axi_gpio_2` (bit 3n blue, 3n+1 green, 3n+2 red for LD*n*). The
   brightness comes from software PWM (64 levels, about 1 kHz), which runs only while
   `rgb_pwm_run()` is called. The demo uses it instead of `usleep()` in its main loop. The demo
@@ -557,7 +563,7 @@ other zeroed memory are cleared by the program itself. The image format is in
 - **RGB sequence (timer interrupt):** after the test, the second AXI Timer (`axi_timer_1`, interrupt 5)
   interrupts every 2 s. Each interrupt starts one turn of the colour wheel on LD0..LD3 (1 s, the four
   LEDs 90° apart), then the LEDs stay off until the next interrupt. The timer's own count gives the
-  position within the turn. The code is in `sw/apps/demo/rgb_seq.c`; the period and the length of
+  position within the turn. The code is in `sw/apps/demo/modules/rgb/rgb_seq.c`; the period and the length of
   the turn are `RGB_SEQ_PERIOD_MS` and `RGB_SEQ_ROT_MS` in `rgb.h`. The interrupt is set up with
   AMD's `XSetupInterruptSystem()` and the XTmrCtr driver (`XTmrCtr_SetHandler`), which makes it a
   short example of a driver interrupt in the demo. If no colours appear at all, the interrupt

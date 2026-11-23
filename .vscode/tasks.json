@@ -44,7 +44,7 @@
         {
             "label": "debug: load program of open file",
             "type": "shell",
-            "command": "make debug-load APP=${fileDirnameBasename}",
+            "command": "make debug-load FILE=${relativeFile}",
             "problemMatcher": { "base": "$gcc", "fileLocation": ["relative", "${workspaceFolder}/sw"] }
         },
         {

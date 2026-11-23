@@ -14,7 +14,8 @@
 #   make flash     write it to the SPI flash (boots at power-up)
 #   make run       configure the FPGA with the plain hardware and load app.elf through the
 #                  debugger (for programs that run from DDR, e.g. APP=echo)
-#   make debug-load  load APP halted at its entry point for the debugger (GDB, port 3004)
+#   make debug-load  load APP halted at its entry point for the debugger (GDB, port 3004);
+#                  FILE=sw/apps/<name>/... instead of APP picks the program a source file belongs to
 #   make console   serial terminal on the Arty USB-UART (Ctrl-] quits)
 #   make clean     remove build/sw     make distclean   remove all of build/
 
@@ -45,6 +46,10 @@ $(BSP_LIB): $(HW_OUT)/system.xsa sw/bsp.conf scripts/build_bsp.sh
 	./scripts/build_bsp.sh
 
 APP ?= demo
+# FILE=sw/apps/<name>/... (any depth, e.g. a file in modules/) picks the program it belongs to
+ifneq ($(FILE),)
+APP := $(word 3,$(subst /, ,$(FILE)))
+endif
 export APP
 
 sw: hw-check $(BSP_LIB)
@@ -65,8 +70,10 @@ run: hw-check $(BSP_LIB)
 
 # For the debugger (VS Code "Debug <app>"): configure the FPGA, load the program
 # and leave the CPU halted at its entry point; GDB then attaches on port 3004.
+# build/sw/debug-app links to the loaded program's directory ("Debug program of open file").
 debug-load: hw-check $(BSP_LIB)
 	$(MAKE) -C sw elf
+	ln -sfn $(APP) build/sw/debug-app
 	./scripts/run.sh -p -s
 
 console:

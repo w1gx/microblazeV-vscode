@@ -14,11 +14,12 @@
     "configurations": [
         {
             // Debugs the program whose source is open in the active editor
-            // (sw/apps/<name>/...): echo.c -> echo, demo's main.c -> demo.
+            // (sw/apps/<name>/..., any depth): echo.c -> echo, demo's main.c or
+            // modules/rgb/rgb.c -> demo. The task links build/sw/debug-app to that program.
             "name": "Debug program of open file",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/sw/${fileDirnameBasename}/app.elf",
+            "program": "${workspaceFolder}/build/sw/debug-app/app.elf",
             "cwd": "${workspaceFolder}/sw",
             "MIMode": "gdb",
             "miDebuggerPath": "/opt/Xilinx/2026.1/gnu/riscv/lin/x86_64-oesdk-linux/usr/bin/riscv32-xilinx-elf/riscv32-xilinx-elf-gdb",

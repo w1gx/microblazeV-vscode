@@ -14,6 +14,8 @@
 #   make elf | size | dis | clean    (clean: this APP's build/sw/<APP>)
 #
 #   make STACK_SIZE=0x4000 [HEAP_MIN=0x10000]   stack size / minimum heap (see link.ld)
+# Sources: every .c in apps/<APP>/ and its subdirectories (e.g. apps/demo/modules/rgb/);
+# each directory with a .h is on the include path, so "rgb.h" works from anywhere in the app.
 # apps/<APP>/app.mk (optional) holds per-app defaults: RUN_FROM, STACK_SIZE, HEAP_MIN, APP_CFLAGS, and
 # TEMPLATE_SRCS/TEMPLATE_CFLAGS (extra flags only for copied AMD template files,
 # e.g. -Wno-... so they stay unmodified).
@@ -36,7 +38,9 @@ SYSROOT     ?= $(XILINX_ROOT)/gnu/riscv/lin/riscv32-xilinx-elf
 UPDATEMEM   ?= $(XILINX_ROOT)/Vivado/bin/updatemem
 PROC        ?= system_i/microblaze_riscv_0
 APPDIR      := apps/$(APP)
-ifeq ($(wildcard $(APPDIR)/*.c),)
+SRCS        := $(sort $(shell find $(APPDIR) -name '*.c' 2>/dev/null))
+APP_HDRS    := $(shell find $(APPDIR) -name '*.h' 2>/dev/null)
+ifeq ($(SRCS),)
 $(error no sources in $(APPDIR) - available apps: $(notdir $(wildcard apps/*)))
 endif
 -include $(APPDIR)/app.mk
@@ -58,9 +62,9 @@ OBJDUMP := $(CROSS)objdump
 SIZE    := $(CROSS)size
 
 ELF     := app
-SRCS    := $(wildcard $(APPDIR)/*.c)
 COMMON  := $(wildcard common/*.c)                       # linked into every program
-OBJS    := $(addprefix $(OUT)/obj/,$(notdir $(SRCS:.c=.o))) \
+# objects mirror the source tree: apps/demo/modules/rgb/rgb.c -> obj/modules/rgb/rgb.o
+OBJS    := $(patsubst $(APPDIR)/%.c,$(OUT)/obj/%.o,$(SRCS)) \
            $(addprefix $(OUT)/obj/common/,$(notdir $(COMMON:.c=.o)))
 # every library the BSP built: libxil (drivers), libxilstandalone, libxiltimer, liblwip220, ...
 BSP_LIBS := $(patsubst lib%.a,-l%,$(notdir $(wildcard $(BSP)/lib/lib*.a)))
@@ -89,6 +93,8 @@ CFLAGS  += $(ARCH) $(OPT) -g3 -std=gnu11 $(WARN) $(EXTRA_WARN) -DSDT \
 APP_CFLAGS ?=
 TEMPLATE_SRCS ?=
 TEMPLATE_CFLAGS ?=
+# include path: the app directory first, then every subdirectory with a header
+APP_INCS := $(addprefix -I,$(APPDIR) $(filter-out $(APPDIR),$(sort $(patsubst %/,%,$(dir $(APP_HDRS))))))
 file_cflags = $(APP_CFLAGS) $(if $(filter $(notdir $(1)),$(TEMPLATE_SRCS)),$(TEMPLATE_CFLAGS))
 LDFLAGS += $(ARCH) -specs=$(BSP)/Xilinx.spec -L$(BSP)/lib -L$(HW_OUT) -L$(OUT) -T link.ld \
            -Wl,--gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments \
@@ -105,14 +111,19 @@ endif
 elf: $(OUT)/$(ELF).elf compdb
 compdb: $(OUT_ROOT)/compile_commands.json
 
-# Compilation database for editors, covering every app (each file with its
-# app's include directory). Rewritten only when something in it changes.
+# Compilation database for editors, covering every app, also files in subdirectories
+# (each with its app's flags and include path, see print-app-cflags). Rewritten only
+# when something in it changes.
 $(OUT_ROOT)/compile_commands.json: FORCE
 	@mkdir -p $(OUT_ROOT)
-	@{ echo '['; sep=' '; for f in apps/*/*.c common/*.c; do d=$$(dirname $$f); a=$$(basename $$d); \
-	    af=$$([ $$a = common ] || $(MAKE) --no-print-directory -s APP=$$a SRC=$$f print-app-cflags); \
-	    printf '%s{ "directory": "%s", "file": "%s",\n    "command": "%s %s -I%s -Icommon -c %s -o %s" }\n' \
-	        "$$sep" "$(CURDIR)" "$(CURDIR)/$$f" "$(CC) $(CFLAGS)" "$$af" "$$d" "$$f" "$(OUT_ROOT)/$$a/obj/$$(basename $${f%.c}).o"; \
+	@{ echo '['; sep=' '; for f in $$(find apps -name '*.c' | sort) common/*.c; do \
+	    case $$f in \
+	        common/*) a=common; af=; o=$$(basename $${f%.c}).o ;; \
+	        *) a=$$(echo $$f | cut -d/ -f2); o=$${f#apps/$$a/}; o=$${o%.c}.o; \
+	           af=$$($(MAKE) --no-print-directory -s APP=$$a SRC=$$f print-app-cflags) ;; \
+	    esac; \
+	    printf '%s{ "directory": "%s", "file": "%s",\n    "command": "%s %s -Icommon -c %s -o %s" }\n' \
+	        "$$sep" "$(CURDIR)" "$(CURDIR)/$$f" "$(CC) $(CFLAGS)" "$$af" "$$f" "$(OUT_ROOT)/$$a/obj/$$o"; \
 	    sep=','; done; echo ']'; } > $@.tmp
 	@cmp -s $@.tmp $@ && rm -f $@.tmp || mv $@.tmp $@
 
@@ -120,8 +131,8 @@ $(OUT)/obj/common/%.o: common/%.c Makefile $(OUT)/cflags.txt $(BSP)/lib/libxil.a
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Icommon -c $< -o $@
 
-print-app-cflags:   # SRC=<file> adds TEMPLATE_CFLAGS if it is a template file
-	@echo '$(call file_cflags,$(SRC))'
+print-app-cflags:   # app flags + include path; SRC=<file> adds TEMPLATE_CFLAGS if it is a template file
+	@echo '$(call file_cflags,$(SRC)) $(APP_INCS)'
 
 print-run-from:
 	@echo '$(RUN_FROM)'
@@ -135,7 +146,7 @@ $(OUT)/app.img: $(OUT)/$(ELF).elf ../scripts/mkimage.py common/mbv_image.h
 # sw/bsp.conf change would otherwise not recompile the program).
 $(OUT)/obj/%.o: $(APPDIR)/%.c Makefile $(wildcard $(APPDIR)/app.mk) $(OUT)/cflags.txt $(BSP)/lib/libxil.a
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(call file_cflags,$<) -I$(APPDIR) -Icommon -c $< -o $@
+	$(CC) $(CFLAGS) $(call file_cflags,$<) $(APP_INCS) -Icommon -c $< -o $@
 
 # Compiler flags of this build; rewritten only when they change (WERROR, EXTRA_WARN,
 # OPT, PRINTF_FLOAT, app.mk ...), and every object depends on it, so a flag change
