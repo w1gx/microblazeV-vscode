@@ -8,11 +8,16 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${XSDB:=$XILINX_ROOT/Vivado/bin/xsdb}"
 : "${UPDATEMEM:=$XILINX_ROOT/Vivado/bin/updatemem}"
 : "${BOARD_REPO:=$HOME/.Xilinx/Vivado/2026.1/xhub/board_store/xilinx_board_store/XilinxBoardStore/Vivado/2026.1/boards}"
+# Optional: user IP repositories (colon-separated) added to every project, for
+# custom IP in the block design. Repositories set in the GUI (Settings > IP >
+# Repository) are kept when the project is recreated, so this is only needed
+# for a project created without one, e.g. a batch `make hw` after deleting build/.
+: "${IP_REPO:=}"
 : "${JOBS:=4}"
 : "${HW_OUT:=$ROOT/build/hw/out}"
 : "${SW_OUT:=$ROOT/build/sw}"
 : "${APP:=demo}"                 # program in sw/apps/<APP>, built into $SW_OUT/<APP>
-export BOARD_REPO JOBS     # read by the Vivado Tcl scripts
+export BOARD_REPO IP_REPO JOBS     # read by the Vivado Tcl scripts
 # Vivado in batch mode, quiet console, logs next to the outputs.
 vivado_batch() {   # vivado_batch <logdir> <script.tcl> [tclargs...]
     local logdir=$1 script=$2; shift 2

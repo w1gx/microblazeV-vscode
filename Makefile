@@ -20,7 +20,8 @@
 #   make clean     remove build/sw     make distclean   remove all of build/
 
 HW_OUT := build/hw/out
-HW_SRC := hw/system_bd.tcl hw/build_hw.tcl hw/project.tcl hw/gen_memmap.tcl hw/arty_a7_100.xdc
+HW_SRC := hw/system_bd.tcl hw/build_hw.tcl hw/project.tcl hw/gen_memmap.tcl hw/arty_a7_100.xdc \
+          $(shell find hw/ip -type f 2>/dev/null)
 BSP_LIB := build/bsp/domain/lib/libxil.a
 
 .PHONY: all hw hw-check gui bsp sw debug-load program flash run console clean distclean

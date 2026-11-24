@@ -182,7 +182,8 @@ peripheral or library needs no Makefile change. Add the IP, `make hw`, and
 
 | Path                                      | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hw/system_bd.tcl`                        | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI GPIO 2 (12 outputs for the four RGB LEDs, `0x40020000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer 0 (`0x41C00000`, lwIP/xiltimer tick), AXI Timer 1 (`0x41C10000`, the demo's RGB sequence), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer 0, 5 timer 1), MDM. Exported with `write_bd_tcl`. |
+| `hw/system_bd.tcl`                        | Block design: MicroBlaze V, 128 KB LMB, 16 KB I/D cache, MIG DDR3, UART Lite, AXI GPIO 0 (LEDs, `0x40000000`), AXI GPIO 1 (ch 1 push buttons, ch 2 DIP switches, `0x40010000`), AXI GPIO 2 (12 outputs for the four RGB LEDs, `0x40020000`), AXI Ethernet Lite (`0x40E00000`), AXI Quad SPI on the configuration flash (`0x44A00000`), AXI Timer 0 (`0x41C00000`, lwIP/xiltimer tick), AXI Timer 1 (`0x41C10000`, the demo's RGB sequence), w1gx AXI CAN controller (`0x44A10000`, `can_tx`/`can_rx` on ChipKit IO32/IO33, user IP in `hw/ip`), AXI INTC (interrupts: 0 UART, 1 buttons/switches, 2 Ethernet, 3 QSPI, 4 timer 0, 5 timer 1, 6 CAN), MDM. Exported with `write_bd_tcl`. |
+| `hw/ip/`                                  | Copies of the user IP in the block design (first IP repository; filled by "MBV: Export BD"): `axi_can_controller_1.0` (W1GX AXI CAN controller). |
 | `hw/arty_a7_100.xdc`                      | The two clock pins (`sys_clk_i` in, `eth_ref_clk` out), configuration settings (quad-SPI boot)                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `hw/project.tcl`                          | Shared Vivado procedures: create the project, export the block design, build, BSP                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `hw/build_hw.tcl`, `hw/build_hw.sh`       | `make hw`: recreate the project in `build/hw/proj`, synthesis, implementation, outputs to `build/hw/out`, then the BSP                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -297,6 +298,19 @@ a `git pull`), `make gui FRESH=1` recreates the project from it.
 The board files come from the Vivado board store (`BOARD_REPO` in `scripts/env.sh`),
 so board interfaces such as `led_4bits`, `rgb_led`, `push_buttons_4bits`, `eth_mii` and `qspi_flash`
 are available. New peripherals get their drivers in the BSP automatically.
+
+Custom IP (here the w1gx CAN controller, `axi_can_controller_0` at `0x44A10000`) lives in
+`hw/ip/`, so a clone on another machine builds without the original IP repository. `hw/ip` is
+always the first IP repository, so its copies win over the same IP anywhere else. To add new IP,
+add its repository in the GUI under Settings > IP > Repository and place the IP. "MBV: Export BD"
+then copies every IP from such a repository that isn't in `hw/ip` yet (`mbv: copied IP ... (commit it)`).
+An existing copy is never overwritten: to take a newer version of an IP, delete its folder in
+`hw/ip` and export again. Repositories set in the GUI are kept when the project is recreated, and
+`IP_REPO` (`scripts/env.sh`, colon-separated) adds more for every project. If an IP is missing anyway,
+`make gui` opens the project without a block design and names the IP: add its repository, then run
+`mbv::create_bd` in the Tcl Console (or close Vivado and run `make gui` again). Commit
+`hw/system_bd.tcl`, the xdc and `hw/ip` after "MBV: Export BD". Discarding them in git loses the
+block-design work.
 
 ## Clocking and porting to another board
 
@@ -626,3 +640,5 @@ The echo server template files `sw/apps/echo/main.c`, `echo.c`, `platform.c` and
 come from AMD's embeddedsw repository and keep their own MIT copyright headers (Xilinx/AMD).
 The BSP, drivers and lwIP are generated into `build/` from the Vivado installation at build
 time, are not part of this repository, and remain under their respective licenses.
+`hw/ip/` holds copies of IP from other repositories (currently the W1GX AXI CAN controller),
+under the license of the repository they come from.

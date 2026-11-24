@@ -23,7 +23,8 @@ source [file join [file dirname [info script]] project.tcl]
 set xpr [file join $mbv::proj_dir mb_v.xpr]
 if {[file exists $xpr] && $force != 1} {
     open_project $xpr
-    if {[catch {mbv::bd_matches_source} same]} { set same 1 }
+    # An empty block design (a GUI start that was missing an IP) has nothing to lose.
+    if {[catch {expr {![mbv::bd_has_cells] || [mbv::bd_matches_source]}} same]} { set same 1 }
     close_project
     if {!$same} {
         error "build/hw/proj has block design changes that are not in hw/system_bd.tcl.\
@@ -39,5 +40,9 @@ if {![mbv::rebuild_requested] && [mbv::outputs_match [mbv::fingerprint]]} {
     return
 }
 
-mbv::new_project
+set missing [mbv::new_project]
+if {$missing ne ""} {
+    error "The IP catalog lacks $missing. Add its repository in the GUI (make gui, Settings > IP >\
+           Repository; it is kept when the project is recreated) or list it in IP_REPO."
+}
 mbv::build $jobs
