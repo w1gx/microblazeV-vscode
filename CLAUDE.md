@@ -245,6 +245,15 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   `RGB_SEQ_PERIOD_MS`/`RGB_SEQ_ROT_MS` in `rgb.h`. The demo's first interrupt user (buttons are still polled).
   `XTmrCtr_Initialize` tracks "started" in the (cleared) instance, so it re-inits fine after a CPU reset.
   The board's PWM still only runs inside `rgb_pwm_run()`; the timer only paces the sequence.
+- **CAN demo (`sw/apps/can`, LMB, about 45 KB):** `modules/can/can_node.c` connects the CAN controller's irq with
+  `XSetupInterruptSystem(&can_dev, can_isr, cfg->IntrId, cfg->IntrParent, …)`. The handler empties the RX FIFO into a
+  32-frame ring, then `GetAndClearEvents` (RX_VALID is a level and re-sets while a frame waits, so drain first) and
+  counts the events. The main loop's ring/event accesses mask the controller's IER instead of the CPU interrupts.
+  `can_node_init` disables IER, resets via `SetMode` and acks all events, because `XAxiCanController_Initialize` only
+  reads ID/CONFIG and the controller keeps its state over a CPU reset. Loopback self-test (4 frames: std 8 bytes,
+  ext, remote, DLC 0; checks TX-done and RX interrupt counts), then bus mode in **one-shot** (a lone board gets one
+  ACK error per frame instead of retrying for ever): heartbeat 0x100 every 1 s [counter, switches], BTN0..3 → 0x120..0x123,
+  received byte 0 → LEDs, keys s/l/o/a/?. `SetMode` resets the controller, so switching modes drops waiting frames.
 - **Echo server (`sw/apps/echo`):**
   - **Source:** AMD's lwip_echo_server template (`Vivado/data/embeddedsw/lib/sw_apps/lwip_echo_server/src`).
     Copied: `main.c`, `echo.c`, `platform.c` and `platform.h`. Only `main.c` is changed, in lines marked `/* mb-test */`:
@@ -460,7 +469,9 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   dropped them. Handlers connect as in `rgb_seq.c`: `XSetupInterruptSystem(&can, handler, cfg->IntrId, cfg->IntrParent,
   XINTERRUPT_DEFAULT_PRIORITY)`. 18 tq per bit (81.25 MHz / (500k × 18) = 9.03 clk, +0.3 %). No software and no board
   test yet. Pins R15/P15 (ChipKit IO32/IO33) were re-entered after the original xdc lines were lost. Check them against
-  the transceiver wiring.
+  the transceiver wiring. `sw/apps/can` builds without warnings and M/A/C instructions (45 KB of the LMB, entry 0x0,
+  `mbv_data_restore` first in `.init_array`); not run on the board yet (none connected): check the loopback PASS line,
+  then a second node (e.g. SocketCAN `candump`/`cansend`, see `sw/apps/can/README.md`).
 - **axi_timer_1 RGB sequence:** hardware built (10 min with the IP cache, WNS +1.259, WHS +0.020; BSP has
   `XPAR_XTMRCTR_1_BASEADDR 0x41c10000`, `XPAR_XTMRCTR_1_INTERRUPTS 0x2005`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x6`).
   demo/boot/echo build without warnings or M/A/C instructions; demo uses 49 KB of the LMB. Not run on the board yet

@@ -369,6 +369,7 @@ is picked up by the next `make`.
 | ------- | ------------ | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `demo`  | local memory | `make program` (or `make flash`)                                                           | Hardware summary, DDR test, Ethernet PHY and flash checks, RGB LED test, LEDs/buttons/switches, timer-interrupt RGB sequence, UART echo |
 | `echo`  | DDR          | `make run APP=echo` (debugger) or `make flash APP=echo` (bootloader)                       | lwIP TCP echo server on port 7                                                                                                          |
+| `can`   | local memory | `make program APP=can` (or `make flash APP=can`)                                           | CAN demo: loopback self-test, heartbeat and button frames, prints received frames and bus errors, all by interrupt (`sw/apps/can/README.md`) |
 | `boot`  | local memory | used by `make flash` for DDR programs; `make program APP=boot` tests it without reflashing | Bootloader: copies a DDR program from flash to DDR at every start                                                                       |
 
 ### Where a program runs: block RAM or DDR
