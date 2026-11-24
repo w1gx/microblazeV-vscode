@@ -127,8 +127,17 @@ static void send_frame(const XAxiCanController_Frame *f)
 
     if (st == XST_SUCCESS)
         can_print_frame("TX", f);
-    else if (st == XST_DEVICE_BUSY)
-        printf("TX std 0x%03lx skipped: all TX buffers busy\n", (unsigned long)f->Id);
+    else if (st == XST_DEVICE_BUSY) {
+        XAxiCanController_ErrorStatus e;
+
+        XAxiCanController_GetErrorStatus(&can_dev, &e);
+        printf("TX std 0x%03lx skipped: all TX buffers busy%s\n", (unsigned long)f->Id,
+               e.Tec == 0 && e.Rec == 0
+                   ? " and TEC/REC 0: nothing was ever sent, can_rx (P15) never\n"
+                     "    reads recessive (high) for 11 bits. Check transceiver RXD -> IO33, its power,\n"
+                     "    standby pin (SN65HVD230 Rs low), and CANH/CANL to the other node"
+                   : "");
+    }
     else
         printf("TX std 0x%03lx failed (status %d)\n", (unsigned long)f->Id, st);
 }

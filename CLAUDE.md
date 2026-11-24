@@ -457,21 +457,27 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   - DHCP on a normal home/office network works; the echo answers from another PC on the same network.
   - With `emaclite_drain_rx()`: ping 0.5 ms, TCP echo OK, 26 KB byte-identical.
 
+- **AXI CAN controller (w1gx user IP, core revision 3), `sw/apps/can`:** works on the board at 500 kbit/s against
+  a gs_usb (candleLight-type) SocketCAN adapter: loopback PASS, heartbeat 0x100 in `candump`, `cansend` frames
+  received. Hardware: `make hw` 11 min, WNS +1.076, WHS +0.024. BSP: `XPAR_XAXI_CAN_CONTROLLER_0_BASEADDR 0x44a10000`,
+  `XPAR_XAXI_CAN_CONTROLLER_0_INTERRUPTS 0x2006`, `..._INTERRUPT_PARENT 0x41200001`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x7`,
+  `XAxiCanController_Config` has `IntrId` / `IntrParent` (from the driver yaml fix in w1gx_ip; before it lopper dropped
+  the interrupts). 18 tq per bit (81.25 MHz / (500k × 18) = 9.03 clk, +0.3 %). Pins R15/P15 (ChipKit IO32/IO33).
+  The app: 45 KB of the LMB, entry 0x0, no warnings or M/A/C instructions.
+  Debugging it (2026-11-24), useful again:
+  - **Read the controller over JTAG** (xsdb, `mrd -value 0x44A10000+off`): STATUS 0x10 (bit 0 TX_READY, TEC 23:16,
+    REC 31:24), TX_DONE_ID 0x1C; the app's `stats` (`nm`) counts irqs/tx_done/rx/errors.
+  - **TX_READY 0 with TEC = REC = 0:** the controller never got through bus integration (`F_INTEGRATE` needs 11
+    recessive bits on `can_rx`), so nothing goes out or comes in. Seen once at the first start; after
+    `make program` it joined normally. The demo prints a hint for this case.
+  - **TX done rising, TEC 0, but the adapter's `ip -s link` RX/TX packets 0:** the adapter's CAN core ACKs (it
+    starts/stops with `ip link up/down`: down gives ACK errors on the board), but its USB bulk path to the host was
+    hung. Unplug and replug the adapter fixed it.
 - **RGB LEDs (demo):** (with the earlier free-running rainbow, before the timer sequence) `rgb_selftest()` passes (readback, also checked over JTAG). Each LED shows red, green and blue
   in the right order, then white and the ramp. The rainbow runs without visible flicker.
 
 ## Not yet verified on hardware
 
-- **AXI CAN controller (w1gx user IP, core revision 3):** `make hw`: 11 min, WNS +1.076, WHS +0.024. BSP:
-  `XPAR_XAXI_CAN_CONTROLLER_0_BASEADDR 0x44a10000`, `XPAR_XAXI_CAN_CONTROLLER_0_INTERRUPTS 0x2006`,
-  `..._INTERRUPT_PARENT 0x41200001`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x7`, and `XAxiCanController_Config` has `IntrId` /
-  `IntrParent`. These came with the driver yaml fix in w1gx_ip; before it, the yaml didn't list `interrupts`, so lopper
-  dropped them. Handlers connect as in `rgb_seq.c`: `XSetupInterruptSystem(&can, handler, cfg->IntrId, cfg->IntrParent,
-  XINTERRUPT_DEFAULT_PRIORITY)`. 18 tq per bit (81.25 MHz / (500k × 18) = 9.03 clk, +0.3 %). No software and no board
-  test yet. Pins R15/P15 (ChipKit IO32/IO33) were re-entered after the original xdc lines were lost. Check them against
-  the transceiver wiring. `sw/apps/can` builds without warnings and M/A/C instructions (45 KB of the LMB, entry 0x0,
-  `mbv_data_restore` first in `.init_array`); not run on the board yet (none connected): check the loopback PASS line,
-  then a second node (e.g. SocketCAN `candump`/`cansend`, see `sw/apps/can/README.md`).
 - **axi_timer_1 RGB sequence:** hardware built (10 min with the IP cache, WNS +1.259, WHS +0.020; BSP has
   `XPAR_XTMRCTR_1_BASEADDR 0x41c10000`, `XPAR_XTMRCTR_1_INTERRUPTS 0x2005`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x6`).
   demo/boot/echo build without warnings or M/A/C instructions; demo uses 49 KB of the LMB. Not run on the board yet

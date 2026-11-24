@@ -43,3 +43,12 @@ sudo ip link set can0 up type can bitrate 500000
 candump can0              # heartbeat 0x100 and the button frames
 cansend can0 200#05       # the board prints it and shows 5 on LD4..LD7
 ```
+
+**Troubleshooting.**
+
+- `TX ... skipped: all TX buffers busy` with TEC/REC 0: nothing was ever sent, because the controller never saw
+  11 recessive bits on `can_rx`. Check transceiver RXD → IO33, its power and standby pin.
+- Board shows TX lines and no ACK errors, but `candump` is silent and `ip -s link show can0` has RX/TX packets 0:
+  the adapter's CAN core is ACKing but its USB side is stuck (seen with a gs_usb/candleLight adapter). Unplug and
+  replug it, then bring `can0` up again. A quick cross-check: `ip link set can0 down` must give ACK errors on the
+  board.
