@@ -52,7 +52,7 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
 ### Skipping work
 
 - **Fingerprint:** `mbv::fingerprint` (`hw/project.tcl`) is a sha256 over the Vivado version, part, board_part, and the
-  comment-stripped `hw/system_bd.tcl` and xdc. After a successful build it goes to `build/hw/out/source.fingerprint`
+  comment-stripped `hw/system_bd.tcl` and xdc, plus the sha256 of every file in `hw/ip` (so changing a vendored IP rebuilds; `HW_SRC` in the Makefile lists them too). After a successful build it goes to `build/hw/out/source.fingerprint`
   (deleted before a full build starts, so an interrupted build never matches). `build_hw.tcl` and `mbv::build`
   skip implementation when all outputs exist and the fingerprint matches. `REBUILD=1` overrides this.
   On such a skip, `mbv::confirm_outputs` touches `source.fingerprint`. `hw-check` (top Makefile) compares `HW_SRC`
@@ -88,11 +88,12 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
   | AXI GPIO 2        | `0x4002_0000` | 12 outputs, `rgb_led` (LD0..LD3; bit 3n blue, 3n+1 green, 3n+2 red), no IRQ, SmartConnect M07 |
   | AXI Ethernet Lite | `0x40E0_0000` | `eth_mii` + `eth_mdio_mdc` (DP83848 PHY, 10/100 MII), IRQ 2                                   |
   | AXI Quad SPI      | `0x44A0_0000` | `qspi_flash`, quad mode, SCK = `ui_clk`/2 = 40.6 MHz, no STARTUPE2 (SCK on pin L16), IRQ 3    |
+  | AXI CAN (w1gx)    | `0x44A1_0000` | user IP `w1gx.com:user:axi_can_controller:1.0` (`hw/ip`), `can_tx` R15 / `can_rx` P15 (ChipKit IO32/33), `C_CLOCK_FREQUENCY` 81247969, IRQ 6, SmartConnect M09 |
   | AXI Timer 0       | `0x41C0_0000` | tick for lwIP / xiltimer (`XILTIMER_tick_timer:axi_timer_0`), IRQ 4                           |
   | AXI Timer 1       | `0x41C1_0000` | demo's RGB sequence (`modules/rgb/rgb_seq.c`), IRQ 5, SmartConnect M08                        |
-  | AXI INTC          | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 6 inputs through the concat                         |
+  | AXI INTC          | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 7 inputs through the concat                         |
 
-- **Resources:** 46/135 RAMB36, about 20 % of LUTs (12,541 with the second timer). Timing met with about +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO, +1.259 with axi_timer_1).
+- **Resources:** 46/135 RAMB36, about 22 % of LUTs (12,541 with the second timer, 14,078 with the CAN controller). Timing met with about +1.1 to +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO, +1.259 with axi_timer_1, +1.076 with the CAN controller).
 - **Configuration settings:** the xdc adds CFGBVS/CONFIG_VOLTAGE plus `SPI_BUSWIDTH 4`,
   `CONFIGRATE 33` and `COMPRESS` for quad-SPI boot.
 
@@ -244,6 +245,15 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   `RGB_SEQ_PERIOD_MS`/`RGB_SEQ_ROT_MS` in `rgb.h`. The demo's first interrupt user (buttons are still polled).
   `XTmrCtr_Initialize` tracks "started" in the (cleared) instance, so it re-inits fine after a CPU reset.
   The board's PWM still only runs inside `rgb_pwm_run()`; the timer only paces the sequence.
+- **CAN demo (`sw/apps/can`, LMB, about 45 KB):** `modules/can/can_node.c` connects the CAN controller's irq with
+  `XSetupInterruptSystem(&can_dev, can_isr, cfg->IntrId, cfg->IntrParent, …)`. The handler empties the RX FIFO into a
+  32-frame ring, then `GetAndClearEvents` (RX_VALID is a level and re-sets while a frame waits, so drain first) and
+  counts the events. The main loop's ring/event accesses mask the controller's IER instead of the CPU interrupts.
+  `can_node_init` disables IER, resets via `SetMode` and acks all events, because `XAxiCanController_Initialize` only
+  reads ID/CONFIG and the controller keeps its state over a CPU reset. Loopback self-test (4 frames: std 8 bytes,
+  ext, remote, DLC 0; checks TX-done and RX interrupt counts), then bus mode in **one-shot** (a lone board gets one
+  ACK error per frame instead of retrying for ever): heartbeat 0x100 every 1 s [counter, switches], BTN0..3 → 0x120..0x123,
+  received byte 0 → LEDs, keys s/l/o/a/?. `SetMode` resets the controller, so switching modes drops waiting frames.
 - **Echo server (`sw/apps/echo`):**
   - **Source:** AMD's lwip_echo_server template (`Vivado/data/embeddedsw/lib/sw_apps/lwip_echo_server/src`).
     Copied: `main.c`, `echo.c`, `platform.c` and `platform.h`. Only `main.c` is changed, in lines marked `/* mb-test */`:
@@ -290,6 +300,33 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
 - **Tool locations:** `xsdb`, `sdtgen`, `empyro`, `lopper`, `updatemem`, `hw_server`, `ninja` and cmake
   (`Vivado/tps`) are all under `Vivado/`, with **no Vitis needed**. The Vivado copy of the embeddedsw repo is
   `Vivado/data/embeddedsw`.
+- **User IP repositories (`hw/ip`):** custom IP (the w1gx CAN controller) is vendored into `hw/ip/<component.xml dir>`
+  and committed, so a clone builds without the original repository. `mbv::setup_project` always puts `hw/ip` first in
+  `ip_repo_paths` (verified: Vivado's `IP_Flow 19-1663` "Duplicate IP found ... hw/ip/... will take precedence"), then the
+  repositories already in the project (Settings > IP > Repository, carried over by `mbv::new_project` via
+  `mbv::_old_ip_repos`, parsed from `mb_v.xpr`, `$PPRDIR`-relative), then `IP_REPO` (`scripts/env.sh`, colon-separated,
+  empty by default). `mbv::vendor_ips` (called by `mbv::export_bd`) copies every BD IP whose `component.xml` is under one
+  of the *other user repositories*. AMD's IP lives in `/opt/Xilinx/2026.1/data/ip` (not under `Vivado/`), and a first
+  version that tested for `$XILINX_VIVADO/data` copied all the AMD cores too. It never overwrites a copy: to update,
+  delete `hw/ip/<ip>` and export again. `hw/system_bd.tcl` doesn't record repository paths.
+  Verified in batch: copy, precedence, a second export copies nothing, a fresh project with only `hw/ip` builds the full BD.
+- **Missing IP:** `cr_bd_system` only *prints* an error for IP missing from the catalog and returns, leaving an **empty**
+  block design (seen 2026-11-24, after a `FRESH=1` lost the hand-set repository). So `mbv::create_bd` checks the script's
+  `list_check_ips` first (`mbv::missing_ips`) and creates nothing if any IP is missing. A design with that IP can't be shown
+  at all: `create_bd_cell` refuses an unknown VLNV. In the GUI, the project stays open with a warning naming the IP.
+  The user adds the repository, then runs `mbv::create_bd` in the Tcl Console, or runs `make gui` again (an existing
+  project without cells gets its block design built on open). Batch `make hw` stops with an error, and an empty block
+  design doesn't count as unexported changes.
+- **New IP core revision locks the old project:** after updating an IP in `hw/ip` (new `core_revision`), the existing
+  `build/hw/proj` has that IP locked, and `write_bd_tcl` adds one line, a `BD::TCL 2052` CRITICAL WARNING
+  "generated from a block design that is out-of-date/locked". That made `make hw` refuse with "block design changes
+  that are not in hw/system_bd.tcl" although nothing was edited (seen 2026-11-24, CAN IP rev 2 → 3). `mbv::_bd_body`
+  drops that line, so the comparison and the fingerprint ignore it. `make hw` recreates the project from
+  `hw/system_bd.tcl`, which picks up the new revision. In the GUI: Report IP Status → Upgrade, then Export BD.
+- **Uncommitted BD work is easy to lose:** discarding `hw/system_bd.tcl`/xdc changes in git leaves no copy. Commit after
+  "MBV: Export BD". As a last resort, the GUI journals (`build/hw/gui/vivado*.jou`) contain every BD command of a session
+  and can be replayed onto a fresh project (that's how the CAN design was recovered), and `system.hwh` in
+  `build/hw/out/system.xsa` shows the built design.
 - **Block design export:** use `write_bd_tcl -force -no_project_wrapper`. The script defines
   `cr_bd_system ""`, which creates, validates and saves the block design. Settings that come from a board
   interface (e.g. the GPIO width) don't appear in the exported Tcl, so changing them makes no diff.
@@ -425,6 +462,16 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
 
 ## Not yet verified on hardware
 
+- **AXI CAN controller (w1gx user IP, core revision 3):** `make hw`: 11 min, WNS +1.076, WHS +0.024. BSP:
+  `XPAR_XAXI_CAN_CONTROLLER_0_BASEADDR 0x44a10000`, `XPAR_XAXI_CAN_CONTROLLER_0_INTERRUPTS 0x2006`,
+  `..._INTERRUPT_PARENT 0x41200001`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x7`, and `XAxiCanController_Config` has `IntrId` /
+  `IntrParent`. These came with the driver yaml fix in w1gx_ip; before it, the yaml didn't list `interrupts`, so lopper
+  dropped them. Handlers connect as in `rgb_seq.c`: `XSetupInterruptSystem(&can, handler, cfg->IntrId, cfg->IntrParent,
+  XINTERRUPT_DEFAULT_PRIORITY)`. 18 tq per bit (81.25 MHz / (500k × 18) = 9.03 clk, +0.3 %). No software and no board
+  test yet. Pins R15/P15 (ChipKit IO32/IO33) were re-entered after the original xdc lines were lost. Check them against
+  the transceiver wiring. `sw/apps/can` builds without warnings and M/A/C instructions (45 KB of the LMB, entry 0x0,
+  `mbv_data_restore` first in `.init_array`); not run on the board yet (none connected): check the loopback PASS line,
+  then a second node (e.g. SocketCAN `candump`/`cansend`, see `sw/apps/can/README.md`).
 - **axi_timer_1 RGB sequence:** hardware built (10 min with the IP cache, WNS +1.259, WHS +0.020; BSP has
   `XPAR_XTMRCTR_1_BASEADDR 0x41c10000`, `XPAR_XTMRCTR_1_INTERRUPTS 0x2005`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x6`).
   demo/boot/echo build without warnings or M/A/C instructions; demo uses 49 KB of the LMB. Not run on the board yet

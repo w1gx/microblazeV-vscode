@@ -28,6 +28,7 @@ proc cr_bd_system { parentCell } {
   xilinx.com:ip:clk_wiz:6.0\
   xilinx.com:ip:axi_quad_spi:3.2\
   xilinx.com:ip:axi_timer:2.0\
+  w1gx.com:user:axi_can_controller:1.0\
   xilinx.com:ip:lmb_v10:3.0\
   xilinx.com:ip:lmb_bram_if_cntlr:4.0\
   xilinx.com:ip:blk_mem_gen:8.4\
@@ -201,6 +202,8 @@ proc create_hier_cell_microblaze_riscv_0_local_memory { parentCell nameHier } {
    CONFIG.POLARITY {ACTIVE_LOW} \
  ] $reset
   set eth_ref_clk [ create_bd_port -dir O -type clk eth_ref_clk ]
+  set can_tx [ create_bd_port -dir O can_tx ]
+  set can_rx [ create_bd_port -dir I can_rx ]
 
   # Create instance: mig_7series_0, and set properties
   set mig_7series_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:mig_7series:4.2 mig_7series_0 ]
@@ -230,7 +233,7 @@ proc create_hier_cell_microblaze_riscv_0_local_memory { parentCell nameHier } {
   # Create instance: microblaze_riscv_0_axi_periph, and set properties
   set microblaze_riscv_0_axi_periph [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 microblaze_riscv_0_axi_periph ]
   set_property -dict [list \
-    CONFIG.NUM_MI {9} \
+    CONFIG.NUM_MI {10} \
     CONFIG.NUM_SI {1} \
   ] $microblaze_riscv_0_axi_periph
 
@@ -242,7 +245,7 @@ proc create_hier_cell_microblaze_riscv_0_local_memory { parentCell nameHier } {
 
   # Create instance: microblaze_riscv_0_xlconcat, and set properties
   set microblaze_riscv_0_xlconcat [ create_bd_cell -type inline_hdl -vlnv xilinx.com:inline_hdl:ilconcat:1.0 microblaze_riscv_0_xlconcat ]
-  set_property CONFIG.NUM_PORTS {6} $microblaze_riscv_0_xlconcat
+  set_property CONFIG.NUM_PORTS {7} $microblaze_riscv_0_xlconcat
 
 
   # Create instance: mdm_1, and set properties
@@ -326,6 +329,23 @@ proc create_hier_cell_microblaze_riscv_0_local_memory { parentCell nameHier } {
   # Create instance: axi_timer_1, and set properties
   set axi_timer_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_timer:2.0 axi_timer_1 ]
 
+  # Create instance: axi_can_controller_0, and set properties
+  set axi_can_controller_0 [ create_bd_cell -type ip -vlnv w1gx.com:user:axi_can_controller:1.0 axi_can_controller_0 ]
+  set_property -dict [list \
+    CONFIG.C_CLOCK_FREQUENCY {81247969} \
+    CONFIG.C_RX_FIFO_DEPTH {8} \
+    CONFIG.C_TQ_PER_BIT {18} \
+  ] $axi_can_controller_0
+
+
+  set_property -dict [ list \
+   CONFIG.FREQ_HZ {81247969} \
+ ] [get_bd_intf_pins $axi_can_controller_0/S_AXI]
+
+  set_property -dict [ list \
+   CONFIG.FREQ_HZ {81247969} \
+ ] [get_bd_pins $axi_can_controller_0/S_AXI_ACLK]
+
   # Create interface connections
   connect_bd_intf_net -intf_net axi_ethernetlite_0_MDIO [get_bd_intf_ports eth_mdio_mdc] [get_bd_intf_pins axi_ethernetlite_0/MDIO]
   connect_bd_intf_net -intf_net axi_ethernetlite_0_MII [get_bd_intf_ports eth_mii] [get_bd_intf_pins axi_ethernetlite_0/MII]
@@ -347,6 +367,7 @@ proc create_hier_cell_microblaze_riscv_0_local_memory { parentCell nameHier } {
   connect_bd_intf_net -intf_net microblaze_riscv_0_axi_periph_M06_AXI [get_bd_intf_pins microblaze_riscv_0_axi_periph/M06_AXI] [get_bd_intf_pins axi_timer_0/S_AXI]
   connect_bd_intf_net -intf_net microblaze_riscv_0_axi_periph_M07_AXI [get_bd_intf_pins microblaze_riscv_0_axi_periph/M07_AXI] [get_bd_intf_pins axi_gpio_2/S_AXI]
   connect_bd_intf_net -intf_net microblaze_riscv_0_axi_periph_M08_AXI [get_bd_intf_pins microblaze_riscv_0_axi_periph/M08_AXI] [get_bd_intf_pins axi_timer_1/S_AXI]
+  connect_bd_intf_net -intf_net microblaze_riscv_0_axi_periph_M09_AXI [get_bd_intf_pins microblaze_riscv_0_axi_periph/M09_AXI] [get_bd_intf_pins axi_can_controller_0/S_AXI]
   connect_bd_intf_net -intf_net microblaze_riscv_0_debug [get_bd_intf_pins mdm_1/MBDEBUG_0] [get_bd_intf_pins microblaze_riscv_0/DEBUG]
   connect_bd_intf_net -intf_net microblaze_riscv_0_dlmb_1 [get_bd_intf_pins microblaze_riscv_0/DLMB] [get_bd_intf_pins microblaze_riscv_0_local_memory/DLMB]
   connect_bd_intf_net -intf_net microblaze_riscv_0_ilmb_1 [get_bd_intf_pins microblaze_riscv_0/ILMB] [get_bd_intf_pins microblaze_riscv_0_local_memory/ILMB]
@@ -355,6 +376,10 @@ proc create_hier_cell_microblaze_riscv_0_local_memory { parentCell nameHier } {
   connect_bd_intf_net -intf_net mig_7series_0_DDR3 [get_bd_intf_ports ddr3_sdram] [get_bd_intf_pins mig_7series_0/DDR3]
 
   # Create port connections
+  connect_bd_net -net axi_can_controller_0_can_tx  [get_bd_pins axi_can_controller_0/can_tx] \
+  [get_bd_ports can_tx]
+  connect_bd_net -net axi_can_controller_0_irq  [get_bd_pins axi_can_controller_0/irq] \
+  [get_bd_pins microblaze_riscv_0_xlconcat/In6]
   connect_bd_net -net axi_ethernetlite_0_ip2intc_irpt  [get_bd_pins axi_ethernetlite_0/ip2intc_irpt] \
   [get_bd_pins microblaze_riscv_0_xlconcat/In2]
   connect_bd_net -net axi_gpio_1_ip2intc_irpt  [get_bd_pins axi_gpio_1/ip2intc_irpt] \
@@ -367,6 +392,8 @@ proc create_hier_cell_microblaze_riscv_0_local_memory { parentCell nameHier } {
   [get_bd_pins microblaze_riscv_0_xlconcat/In5]
   connect_bd_net -net axi_uartlite_0_interrupt  [get_bd_pins axi_uartlite_0/interrupt] \
   [get_bd_pins microblaze_riscv_0_xlconcat/In0]
+  connect_bd_net -net can_rx_1  [get_bd_ports can_rx] \
+  [get_bd_pins axi_can_controller_0/can_rx]
   connect_bd_net -net clk_wiz_eth_eth_ref_clk  [get_bd_pins clk_wiz_eth/eth_ref_clk] \
   [get_bd_ports eth_ref_clk]
   connect_bd_net -net mdm_1_debug_sys_rst  [get_bd_pins mdm_1/Debug_SYS_Rst] \
@@ -387,7 +414,8 @@ proc create_hier_cell_microblaze_riscv_0_local_memory { parentCell nameHier } {
   [get_bd_pins axi_quad_spi_0/ext_spi_clk] \
   [get_bd_pins axi_timer_0/s_axi_aclk] \
   [get_bd_pins axi_gpio_2/s_axi_aclk] \
-  [get_bd_pins axi_timer_1/s_axi_aclk]
+  [get_bd_pins axi_timer_1/s_axi_aclk] \
+  [get_bd_pins axi_can_controller_0/S_AXI_ACLK]
   connect_bd_net -net microblaze_riscv_0_intr  [get_bd_pins microblaze_riscv_0_xlconcat/dout] \
   [get_bd_pins microblaze_riscv_0_axi_intc/intr]
   connect_bd_net -net mig_7series_0_mmcm_locked  [get_bd_pins mig_7series_0/mmcm_locked] \
@@ -417,11 +445,13 @@ proc create_hier_cell_microblaze_riscv_0_local_memory { parentCell nameHier } {
   [get_bd_pins axi_quad_spi_0/s_axi_aresetn] \
   [get_bd_pins axi_timer_0/s_axi_aresetn] \
   [get_bd_pins axi_gpio_2/s_axi_aresetn] \
-  [get_bd_pins axi_timer_1/s_axi_aresetn]
+  [get_bd_pins axi_timer_1/s_axi_aresetn] \
+  [get_bd_pins axi_can_controller_0/S_AXI_ARESETN]
   connect_bd_net -net sys_clk_i_1  [get_bd_ports sys_clk_i] \
   [get_bd_pins mig_7series_0/sys_clk_i]
 
   # Create address segments
+  assign_bd_address -offset 0x44A10000 -range 0x00010000 -target_address_space [get_bd_addr_spaces microblaze_riscv_0/Data] [get_bd_addr_segs axi_can_controller_0/S_AXI/S_AXI_reg] -force
   assign_bd_address -offset 0x40E00000 -range 0x00010000 -target_address_space [get_bd_addr_spaces microblaze_riscv_0/Data] [get_bd_addr_segs axi_ethernetlite_0/S_AXI/Reg] -force
   assign_bd_address -offset 0x40000000 -range 0x00010000 -target_address_space [get_bd_addr_spaces microblaze_riscv_0/Data] [get_bd_addr_segs axi_gpio_0/S_AXI/Reg] -force
   assign_bd_address -offset 0x40010000 -range 0x00010000 -target_address_space [get_bd_addr_spaces microblaze_riscv_0/Data] [get_bd_addr_segs axi_gpio_1/S_AXI/Reg] -force
