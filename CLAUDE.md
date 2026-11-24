@@ -93,7 +93,7 @@ output with comments stripped), and refuses while `hw/gui.tcl` is running.
   | AXI Timer 1       | `0x41C1_0000` | demo's RGB sequence (`modules/rgb/rgb_seq.c`), IRQ 5, SmartConnect M08                        |
   | AXI INTC          | `0x4120_0000` | **fast-interrupt mode** (`C_HAS_FAST=1`), 7 inputs through the concat                         |
 
-- **Resources:** 46/135 RAMB36, about 20 % of LUTs (12,541 with the second timer). Timing met with about +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO, +1.259 with axi_timer_1).
+- **Resources:** 46/135 RAMB36, about 22 % of LUTs (12,541 with the second timer, 14,078 with the CAN controller). Timing met with about +1.1 to +1.3 ns WNS at 81 MHz (+1.316 with the RGB GPIO, +1.259 with axi_timer_1, +1.076 with the CAN controller).
 - **Configuration settings:** the xdc adds CFGBVS/CONFIG_VOLTAGE plus `SPI_BUSWIDTH 4`,
   `CONFIGRATE 33` and `COMPRESS` for quad-SPI boot.
 
@@ -308,6 +308,12 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
   The user adds the repository, then runs `mbv::create_bd` in the Tcl Console, or runs `make gui` again (an existing
   project without cells gets its block design built on open). Batch `make hw` stops with an error, and an empty block
   design doesn't count as unexported changes.
+- **New IP core revision locks the old project:** after updating an IP in `hw/ip` (new `core_revision`), the existing
+  `build/hw/proj` has that IP locked, and `write_bd_tcl` adds one line, a `BD::TCL 2052` CRITICAL WARNING
+  "generated from a block design that is out-of-date/locked". That made `make hw` refuse with "block design changes
+  that are not in hw/system_bd.tcl" although nothing was edited (seen 2026-11-24, CAN IP rev 2 → 3). `mbv::_bd_body`
+  drops that line, so the comparison and the fingerprint ignore it. `make hw` recreates the project from
+  `hw/system_bd.tcl`, which picks up the new revision. In the GUI: Report IP Status → Upgrade, then Export BD.
 - **Uncommitted BD work is easy to lose:** discarding `hw/system_bd.tcl`/xdc changes in git leaves no copy. Commit after
   "MBV: Export BD". As a last resort, the GUI journals (`build/hw/gui/vivado*.jou`) contain every BD command of a session
   and can be replayed onto a fresh project (that's how the CAN design was recovered), and `system.hwh` in
@@ -447,10 +453,14 @@ pin E3, 100 MHz oscillator ──> port sys_clk_i ──> MIG sys_clk_i (single-
 
 ## Not yet verified on hardware
 
-- **AXI CAN controller (w1gx user IP):** hardware built in the GUI (WNS +1.226, WHS +0.022; BSP has
-  `XPAR_XAXI_CAN_CONTROLLER_0_BASEADDR 0x44a10000`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x7`, but no `..._INTERRUPTS` entry for
-  the CAN controller, probably because its driver yaml declares no interrupt). No software and no board test yet. Pins
-  R15/P15 (ChipKit IO32/IO33) were re-entered after the original xdc lines were lost. Check them against the transceiver wiring.
+- **AXI CAN controller (w1gx user IP, core revision 3):** `make hw`: 11 min, WNS +1.076, WHS +0.024. BSP:
+  `XPAR_XAXI_CAN_CONTROLLER_0_BASEADDR 0x44a10000`, `XPAR_XAXI_CAN_CONTROLLER_0_INTERRUPTS 0x2006`,
+  `..._INTERRUPT_PARENT 0x41200001`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x7`, and `XAxiCanController_Config` has `IntrId` /
+  `IntrParent`. These came with the driver yaml fix in w1gx_ip; before it, the yaml didn't list `interrupts`, so lopper
+  dropped them. Handlers connect as in `rgb_seq.c`: `XSetupInterruptSystem(&can, handler, cfg->IntrId, cfg->IntrParent,
+  XINTERRUPT_DEFAULT_PRIORITY)`. 18 tq per bit (81.25 MHz / (500k × 18) = 9.03 clk, +0.3 %). No software and no board
+  test yet. Pins R15/P15 (ChipKit IO32/IO33) were re-entered after the original xdc lines were lost. Check them against
+  the transceiver wiring.
 - **axi_timer_1 RGB sequence:** hardware built (10 min with the IP cache, WNS +1.259, WHS +0.020; BSP has
   `XPAR_XTMRCTR_1_BASEADDR 0x41c10000`, `XPAR_XTMRCTR_1_INTERRUPTS 0x2005`, `XPAR_XINTC_0_NUM_INTR_INPUTS 0x6`).
   demo/boot/echo build without warnings or M/A/C instructions; demo uses 49 KB of the LMB. Not run on the board yet

@@ -41,6 +41,10 @@ typedef struct {
     char   *Name;            /* compatible string from the device tree */
 #endif
     UINTPTR BaseAddress;
+#ifdef SDT
+    u32     IntrId;          /* interrupts: encoded ID for XSetupInterruptSystem(), 0xFFFF if irq is unconnected */
+    UINTPTR IntrParent;      /* interrupt-parent: controller base address, bit 0 = type */
+#endif
 } XAxiCanController_Config;
 
 /* Driver instance */

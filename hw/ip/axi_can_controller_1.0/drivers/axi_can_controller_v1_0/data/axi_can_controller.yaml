@@ -9,7 +9,7 @@
 # silently skips the driver.
 #
 # Entries under "required" (after compatible) fill XAxiCanController_Config in order:
-#   compatible -> Name, reg -> BaseAddress
+#   compatible -> Name, reg -> BaseAddress, interrupts -> IntrId, interrupt-parent -> IntrParent
 
 title: Bindings for AXI CAN Controller
 
@@ -26,6 +26,10 @@ properties:
               - xlnx,axi-can-controller-1.0
   reg:
     description: Standard reg property
+  interrupts:
+    description: Interrupt line of the irq output
+  interrupt-parent:
+    description: Interrupt controller the irq output is connected to
 
 config:
   - XAxiCanController_Config
@@ -33,6 +37,8 @@ config:
 required:
   - compatible
   - reg
+  - interrupts
+  - interrupt-parent
 
 examples:
   xaxi_can_controller_example.c:

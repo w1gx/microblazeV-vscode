@@ -192,10 +192,13 @@ proc mbv::open_bd {} {
     return [current_bd_design]
 }
 
-# write_bd_tcl output without comments and blank lines, for comparing.
+# write_bd_tcl output without comments and blank lines, for comparing. Also
+# without the warning it adds while an IP is locked (BD::TCL 2052, e.g. after a
+# user IP got a new core revision): that is not a change of the design.
 proc mbv::_bd_body {file} {
     set fh [open $file r]; set lines [split [read $fh] \n]; close $fh
-    return [join [lsearch -all -inline -not -regexp $lines {^\s*(#.*)?$}] \n]
+    set lines [lsearch -all -inline -not -regexp $lines {^\s*(#.*)?$}]
+    return [join [lsearch -all -inline -not -regexp $lines {-id 2052 .*out-of-date/locked}] \n]
 }
 
 proc mbv::_export_tmp {} {
